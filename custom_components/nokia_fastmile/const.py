@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+from datetime import timedelta
+
+DOMAIN = "nokia_fastmile"
+NAME = "Nokia FastMile 5G"
+
+CONF_HOST = "host"
+CONF_USERNAME = "username"
+CONF_PASSWORD = "password"
+CONF_USE_HTTPS = "use_https"
+
+DEFAULT_HOST = "192.168.192.1"
+DEFAULT_USERNAME = "admin"
+DEFAULT_USE_HTTPS = False
+
+SCAN_INTERVAL = timedelta(seconds=30)
+REQUEST_TIMEOUT = 10
+
+# CGI endpoints (verified via DevTools on firmware 1.2302.00.0355)
+PATH_LOGIN_NONCE = "/login_web_app.cgi?nonce"
+PATH_LOGIN_SALT = "/login_web_app.cgi?salt"
+PATH_LOGIN = "/login_web_app.cgi"
+PATH_OVERVIEW = "/overview_get_web_app.cgi"
+PATH_DEVICE_INFO = "/dashboard_device_info_status_web_app.cgi"
+PATH_CHECK_EXPIRE = "/check_expire_web_app.cgi"
+
+# Nokia-specific HTTP status code for successful login
+LOGIN_SUCCESS_STATUS = 299
+
+# ── Coordinator data keys ──────────────────────────────────────────────────────
+# 5G signal (from overview_get_web_app.cgi → cell_5G_stats_cfg[0].stat)
+DATA_5G_RSRP = "5g_rsrp"
+DATA_5G_RSRQ = "5g_rsrq"
+DATA_5G_SINR = "5g_sinr"
+DATA_5G_SIGNAL_LEVEL = "5g_signal_level"
+
+# LTE signal (from overview_get_web_app.cgi → cell_LTE_stats_cfg[0].stat)
+DATA_LTE_RSRP = "lte_rsrp"
+DATA_LTE_RSRQ = "lte_rsrq"
+DATA_LTE_RSSI = "lte_rssi"
+DATA_LTE_SINR = "lte_sinr"
+DATA_LTE_SIGNAL_LEVEL = "lte_signal_level"
+
+# Connection / WAN (from overview_get_web_app.cgi)
+DATA_CONNECTION_STATE = "connection_state"
+DATA_WAN_MODE = "wan_mode"
+DATA_WAN_ACTIVE = "wan_active"
+
+# Device info (from dashboard_device_info_status_web_app.cgi)
+DATA_UPTIME = "uptime"
+DATA_SW_VERSION = "sw_version"
+DATA_SERIAL_NUMBER = "serial_number"
+DATA_CONNECTED_DEVICES = "connected_devices"
+DATA_UNREAD_SMS = "unread_sms"
+
+# Meta
+DATA_LAST_UPDATE = "last_update"
+DATA_ERROR = "error"

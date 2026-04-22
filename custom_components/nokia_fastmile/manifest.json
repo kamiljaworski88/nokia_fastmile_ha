@@ -1,0 +1,12 @@
+{
+  "domain": "nokia_fastmile",
+  "name": "Nokia FastMile 5G",
+  "version": "1.0.0",
+  "documentation": "",
+  "requirements": ["aiohttp>=3.8"],
+  "dependencies": [],
+  "codeowners": [],
+  "iot_class": "local_polling",
+  "config_flow": true,
+  "homeassistant": "2024.1.0"
+}

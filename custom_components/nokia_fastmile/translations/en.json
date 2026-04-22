@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Nokia FastMile 5G",
+        "description": "Enter the access credentials for your Nokia FastMile 5G14-B router.",
+        "data": {
+          "host": "Router IP address",
+          "username": "Username",
+          "password": "Password",
+          "use_https": "Use HTTPS"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the router. Check the IP address.",
+      "invalid_auth": "Invalid credentials.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This router is already configured."
+    }
+  }
+}
