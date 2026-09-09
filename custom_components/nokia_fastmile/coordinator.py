@@ -15,7 +15,7 @@ Authentication (3 steps):
      Body:
        userhash      = nokia_b64(sha256(username + ":" + nonce))
        RandomKeyhash = nokia_b64(sha256(randomKey + ":" + nonce))
-       response      = nokia_b64(sha256(sha256(username + ":" + password_hash) + ":" + nonce))
+       response      = nokia_b64(sha256(base64(sha256(username + ":" + password_hash)) + ":" + nonce))
        nonce         = original nonce string with '=' → '.'
        enckey        = nokia_b64(16 random bytes)
        enciv         = nokia_b64(16 random bytes)
@@ -147,6 +147,10 @@ def _sha256_hex(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def _sha256_b64(value: str, salt: str) -> str:
+    return base64.b64encode(hashlib.sha256(f"{value}:{salt}".encode()).digest()).decode()
+
+
 def _sha256_url(value: str, nonce: str) -> str:
     return _nokia_b64encode(hashlib.sha256(f"{value}:{nonce}".encode()).digest())
 
@@ -268,6 +272,7 @@ def _safe_login_payload(payload: dict[str, str]) -> dict[str, Any]:
         "userhash": payload.get("userhash"),
         "RandomKeyhash": payload.get("RandomKeyhash"),
         "nonce": payload.get("nonce"),
+        "response": payload.get("response"),
         "response_len": len(payload.get("response", "")),
         "enckey_len": len(payload.get("enckey", "")),
         "enciv_len": len(payload.get("enciv", "")),
@@ -290,7 +295,7 @@ def _build_login_payload(
     for _ in range(1, iterations):
         password_hash = hashlib.sha256(bytes.fromhex(password_hash)).hexdigest()
 
-    user_password_hash = _sha256_hex(username + password_hash.lower())
+    user_password_hash = _sha256_b64(username, password_hash.lower())
 
     return {
         "userhash": _sha256_url(username, nonce_b64),
