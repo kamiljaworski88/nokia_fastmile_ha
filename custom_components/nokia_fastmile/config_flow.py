@@ -103,6 +103,17 @@ def _safe_login_payload(payload: dict[str, str]) -> dict[str, Any]:
     }
 
 
+def _login_form_body(payload: dict[str, str]) -> str:
+    return "&".join(f"{key}={payload[key]}" for key in (
+        "userhash",
+        "RandomKeyhash",
+        "response",
+        "nonce",
+        "enckey",
+        "enciv",
+    ))
+
+
 def _request_headers(
     base_url: str,
     *,
@@ -111,6 +122,7 @@ def _request_headers(
     headers = {
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Origin": base_url,
         "Referer": f"{base_url}/web_whw/",
     }
     if content_type is not None:
@@ -230,16 +242,10 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                 )
                 safe_payload = _safe_login_payload(payload)
                 _LOGGER.debug("nokia_fastmile config: login payload safe=%s", safe_payload)
-                if mode == "json":
-                    post_kwargs = {
-                        "json": payload,
-                        "headers": _request_headers(base_url, content_type=None),
-                    }
-                else:
-                    post_kwargs = {
-                        "data": payload,
-                        "headers": _request_headers(base_url),
-                    }
+                post_kwargs = {
+                    "data": _login_form_body(payload),
+                    "headers": _request_headers(base_url),
+                }
 
                 async with session.post(base_url + PATH_LOGIN, **post_kwargs) as r:
                     body = await r.text()

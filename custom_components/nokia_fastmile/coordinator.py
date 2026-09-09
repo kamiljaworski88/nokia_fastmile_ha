@@ -57,7 +57,7 @@ import hashlib
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import aiohttp
@@ -123,6 +123,10 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class _LoginBackoffError(Exception):
+    """Raised when the router has temporarily locked login attempts."""
 
 
 # ── Nokia base64url helpers ────────────────────────────────────────────────────
@@ -267,6 +271,14 @@ def _redact_login_body(body: str) -> str:
     return json.dumps(data, separators=(",", ":"))
 
 
+def _login_body_result(body: str) -> tuple[int | None, Any]:
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return None, None
+    return data.get("result"), data.get("reason")
+
+
 def _safe_login_payload(payload: dict[str, str]) -> dict[str, Any]:
     return {
         "userhash": payload.get("userhash"),
@@ -277,6 +289,17 @@ def _safe_login_payload(payload: dict[str, str]) -> dict[str, Any]:
         "enckey_len": len(payload.get("enckey", "")),
         "enciv_len": len(payload.get("enciv", "")),
     }
+
+
+def _login_form_body(payload: dict[str, str]) -> str:
+    return "&".join(f"{key}={payload[key]}" for key in (
+        "userhash",
+        "RandomKeyhash",
+        "response",
+        "nonce",
+        "enckey",
+        "enciv",
+    ))
 
 
 def _build_login_payload(
@@ -326,6 +349,7 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._token: str | None = None
         self._login_retry_count: int = 0
         self._max_login_retries: int = 2
+        self._login_blocked_until: datetime | None = None
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -353,6 +377,7 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._authenticated = False
         self._sid = None
         self._token = None
+        self._login_blocked_until = None
 
     # ── coordinator core ──────────────────────────────────────────────────────
 
@@ -419,6 +444,9 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("nokia_fastmile: request timed out")
             return {**last, DATA_ERROR: "Timeout"}
 
+        except _LoginBackoffError as err:
+            return {**last, DATA_ERROR: str(err)}
+
         except aiohttp.ClientResponseError as err:
             _LOGGER.warning("nokia_fastmile: HTTP %s — %s", err.status, err.message)
             if err.status in (401, 403):
@@ -446,6 +474,16 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         base = self._base_url()
         username = self._config[CONF_USERNAME]
         password = self._config[CONF_PASSWORD]
+
+        if self._login_blocked_until is not None:
+            now = datetime.now()
+            if now < self._login_blocked_until:
+                _LOGGER.warning(
+                    "nokia_fastmile: login suppressed after LOCKEDDOWN until %s",
+                    self._login_blocked_until.isoformat(timespec="seconds"),
+                )
+                raise _LoginBackoffError("Login temporarily locked by router")
+            self._login_blocked_until = None
 
         last_request_info = None
         last_history = ()
@@ -498,16 +536,10 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             safe_payload = _safe_login_payload(payload)
             _LOGGER.debug("nokia_fastmile: login payload safe=%s", safe_payload)
-            if mode == "json":
-                post_kwargs = {
-                    "json": payload,
-                    "headers": self._request_headers(content_type=None),
-                }
-            else:
-                post_kwargs = {
-                    "data": payload,
-                    "headers": self._request_headers(),
-                }
+            post_kwargs = {
+                "data": _login_form_body(payload),
+                "headers": self._request_headers(),
+            }
 
             async with self._session.post(base + PATH_LOGIN, **post_kwargs) as r:
                 last_request_info = r.request_info
@@ -515,12 +547,15 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 last_status = r.status
                 body = await r.text()
                 login_session = _login_body_session(body)
+                login_result, login_reason = _login_body_result(body)
                 cookie_names = [c.key for c in self._session.cookie_jar] if self._session.cookie_jar else []
                 _LOGGER.debug(
-                    "nokia_fastmile: login attempt mode=%s nonce=%s status=%s cookies=%s body=%.120s",
+                    "nokia_fastmile: login attempt mode=%s nonce=%s status=%s result=%s reason=%s cookies=%s body=%.120s",
                     mode,
                     "dotted" if dotted_nonce else "raw",
                     r.status,
+                    login_result,
+                    login_reason,
                     cookie_names,
                     _redact_login_body(body),
                 )
@@ -533,6 +568,7 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         self._sid = _session_cookie_value(self._session)
                         self._token = None
                     self._authenticated = True
+                    self._login_blocked_until = None
                     _LOGGER.info(
                         "nokia_fastmile: login successful with %s payload, %s nonce (HTTP %s)",
                         mode,
@@ -540,9 +576,13 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         r.status,
                     )
                     return
+                if login_result == -2:
+                    self._login_blocked_until = datetime.now() + timedelta(minutes=5)
                 _LOGGER.warning(
-                    "nokia_fastmile: login rejected status=%s body=%s payload_safe=%s",
+                    "nokia_fastmile: login rejected status=%s result=%s reason=%s body=%s payload_safe=%s",
                     r.status,
+                    login_result,
+                    login_reason,
                     _redact_login_body(body),
                     safe_payload,
                 )
@@ -688,6 +728,7 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         headers = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Origin": self._base_url(),
             "Referer": f"{self._base_url()}/web_whw/",
         }
         if content_type is not None:
