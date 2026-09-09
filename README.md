@@ -87,12 +87,13 @@ Jeżeli konfiguracja nie działa:
 
 Sensory `Cellular Bytes Received`, `Cellular Bytes Sent`, `Ethernet Bytes Received`,
 `Ethernet Bytes Sent`, `Ethernet Packets Received` i `Ethernet Packets Sent`
-są pobierane z endpointu:
+są oznaczone jako domyślnie wyłączone, ponieważ część wersji firmware nie udostępnia
+tych danych stabilnie przez endpoint:
 
 - `/fastmile_radio_status_web_app.cgi`
 
-Jeżeli po aktualizacji nadal mają stan `unknown`, sprawdź w logach Home Assistant,
-czy router nie zwraca dla tego endpointu HTTP `401` albo pustej odpowiedzi.
+Jeżeli włączysz je ręcznie i nadal mają stan `unknown`, router prawdopodobnie nie
+zwraca tych pól w tej wersji firmware.
 
 ## Wersja
 
