@@ -554,7 +554,9 @@ class NokiaFastMileCard extends HTMLElement {
   }
 }
 
-customElements.define("nokia-fastmile-card", NokiaFastMileCard);
+if (!customElements.get("nokia-fastmile-card")) {
+  customElements.define("nokia-fastmile-card", NokiaFastMileCard);
+}
 
 window.customCards = window.customCards || [];
 window.customCards.push({

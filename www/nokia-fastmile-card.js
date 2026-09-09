@@ -1,744 +1,567 @@
-// nokia-fastmile-card.js — Karta statusu routera Nokia FastMile dla Home Assistant
-// Wersja 2.0.0 — Wykresy historyczne + status
+/**
+ * Nokia FastMile 5G Card — Lovelace card for signal monitoring.
+ * Visual style mirrors HomePulse / Rehab Monitor Card (same design tokens).
+ * Vanilla Web Component — no external dependencies.
+ *
+ * Usage in dashboard:
+ *   type: custom:nokia-fastmile-card
+ *   title: "Nokia FastMile 5G"   # optional
+ */
 
-const DEFAULT_ENTITY_ID = 'sensor.nokia_fastmile_5g_connection_state';
-const CHART_LIBRARY_URL = 'https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js';
+// ── Signal quality thresholds ─────────────────────────────────────────────────
+const Q = {
+  rsrp: { good: -80, warn: -100 },   // dBm
+  rsrq: { good: -10, warn: -15 },    // dB
+  sinr: { good: 10,  warn: 0  },     // dB
+};
 
-// ── Styles (design tokens spójne z HomePulse) ────────────────────────────────
+function qColor(v, t) {
+  if (v === null || v === undefined) return "var(--secondary-text-color)";
+  if (v >= t.good) return "var(--success-color, #4caf50)";
+  if (v >= t.warn) return "var(--warning-color, #ff9800)";
+  return "var(--error-color, #db4437)";
+}
+
+function levelColor(lv) {
+  if (lv === null) return "var(--secondary-text-color)";
+  if (lv >= 4)    return "var(--success-color, #4caf50)";
+  if (lv >= 2)    return "var(--warning-color, #ff9800)";
+  return "var(--error-color, #db4437)";
+}
+
+function val(state) {
+  if (!state || ["unavailable", "unknown"].includes(state.state)) return null;
+  const n = parseFloat(state.state);
+  return isNaN(n) ? state.state : n;
+}
+
+function fmtUptime(sec) {
+  if (sec === null || sec === undefined) return "—";
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function esc(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function fmtBytes(bytes) {
+  if (bytes === null || bytes === undefined) return "—";
+  const n = Number(bytes);
+  if (!Number.isFinite(n)) return "—";
+  if (n === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
+  return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+}
+
+function fmtTraffic(state) {
+  const value = val(state);
+  if (value === null || value === undefined) return "—";
+  const unit = state?.attributes?.unit_of_measurement;
+  if (unit && unit.toLowerCase() !== "b") {
+    const n = Number(value);
+    const display = Number.isFinite(n) ? n.toFixed(2) : value;
+    return `${display} ${unit}`;
+  }
+  return fmtBytes(value);
+}
+
+// ── Styles (same design tokens as home-pulse-card) ────────────────────────────
 const STYLES = `
-  :host { display: block; font-family: var(--primary-font-family, 'Segoe UI', sans-serif); }
+  :host { display: block; }
 
   ha-card { padding: 16px; box-sizing: border-box; }
 
-  /* ── Nagłówek (identyczny z HomePulse) ── */
+  /* Header */
   .header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 16px;
+    display: flex; align-items: flex-start;
+    justify-content: space-between; margin-bottom: 14px;
   }
   .header-title {
-    font-size: 1.1rem;
-    font-weight: 600;
+    font-size: 1.1rem; font-weight: 600;
     color: var(--primary-text-color);
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    display: flex; align-items: center; gap: 8px;
   }
   .header-title ha-icon { color: var(--primary-color); }
+  .header-meta {
+    font-size: 0.72rem; color: var(--secondary-text-color); margin-top: 2px;
+  }
+  .badge {
+    font-size: 0.72rem; font-weight: 700; padding: 3px 10px;
+    border-radius: 20px; white-space: nowrap; margin-top: 2px;
+  }
+  .badge.ok   { background: color-mix(in srgb, var(--success-color,#4caf50) 15%, transparent);
+                color: var(--success-color, #4caf50); }
+  .badge.err  { background: color-mix(in srgb, var(--error-color,#db4437) 15%, transparent);
+                color: var(--error-color, #db4437); }
+  .badge.unk  { background: color-mix(in srgb, var(--secondary-text-color) 12%, transparent);
+                color: var(--secondary-text-color); }
 
-  .header-actions { display: flex; gap: 6px; align-items: center; }
+  /* Signal panels grid */
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
 
-  /* ── Status routera ── */
-  .status-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-    padding: 12px;
-    border-radius: 12px;
+  .panel {
+    padding: 10px 12px; border-radius: 12px;
     background: var(--card-background-color);
     border: 1px solid var(--divider-color);
   }
-  .status-icon {
-    font-size: 2rem;
-    color: var(--primary-color);
-  }
-  .status-text {
-    flex: 1;
-  }
-  .status-title {
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--primary-text-color);
-    margin-bottom: 4px;
-  }
-  .status-subtitle {
-    font-size: 0.85rem;
-    color: var(--secondary-text-color);
+  .panel-title {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--secondary-text-color); margin-bottom: 8px;
   }
 
-  /* ── Sygnały ── */
-  .signals-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 12px;
-    margin-bottom: 16px;
+  /* Signal bars */
+  .bars { display: flex; align-items: flex-end; gap: 3px; margin-bottom: 8px; height: 18px; }
+  .bar {
+    width: 7px; border-radius: 2px 2px 0 0;
+    background: var(--divider-color);
   }
-  .signal-card {
-    display: flex;
-    flex-direction: column;
-    padding: 12px;
-    border-radius: 12px;
-    background: var(--card-background-color);
-    border: 1px solid var(--divider-color);
-    text-align: center;
-  }
-  .signal-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--primary-color);
-    margin-bottom: 4px;
-  }
-  .signal-unit {
-    font-size: 0.8rem;
-    color: var(--secondary-text-color);
-    margin-bottom: 8px;
-  }
-  .signal-label {
-    font-size: 0.85rem;
-    color: var(--primary-text-color);
-    font-weight: 600;
-  }
-  .signal-type {
-    font-size: 0.7rem;
-    color: var(--secondary-text-color);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
+  .bar.b1 { height: 30%; } .bar.b2 { height: 48%; }
+  .bar.b3 { height: 64%; } .bar.b4 { height: 82%; } .bar.b5 { height: 100%; }
+  .bar.filled { background: var(--bar-color, var(--primary-color)); }
+  .level-label { font-size: 0.75rem; font-weight: 600; color: var(--bar-color, var(--primary-color)); margin-left: 4px; align-self: center; }
 
-  /* ── Transfer danych ── */
-  .transfer-section {
-    margin-bottom: 16px;
-  }
-  .transfer-title {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--primary-text-color);
-    margin-bottom: 8px;
-  }
-  .transfer-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
-  .transfer-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
-    border-radius: 8px;
-    background: var(--card-background-color);
-    border: 1px solid var(--divider-color);
-  }
-  .transfer-label {
-    font-size: 0.85rem;
-    color: var(--primary-text-color);
-  }
-  .transfer-value {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--primary-color);
-  }
+  /* Metric rows */
+  .metric { display: flex; justify-content: space-between; align-items: center;
+            padding: 2px 0; font-size: 0.82rem; }
+  .metric-label { color: var(--secondary-text-color); }
+  .metric-value { font-weight: 600; font-variant-numeric: tabular-nums; }
 
-  /* ── Informacje systemowe ── */
-  .system-info {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 8px;
-  }
-  .info-item {
-    display: flex;
-    flex-direction: column;
-    padding: 8px 12px;
-    border-radius: 8px;
-    background: var(--card-background-color);
-    border: 1px solid var(--divider-color);
-    text-align: center;
-  }
-  .info-value {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--primary-color);
-    margin-bottom: 2px;
-  }
-  .info-label {
-    font-size: 0.75rem;
-    color: var(--secondary-text-color);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  /* ── Responsywność ── */
-  @media (max-width: 600px) {
-    .signals-grid { grid-template-columns: 1fr; }
-    .transfer-grid { grid-template-columns: 1fr; }
-    .system-info { grid-template-columns: 1fr 1fr; }
-  }
-
-  /* ── Wykresy ── */
-  .charts-section {
-    margin-top: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+  /* Charts */
+  .charts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .chart-wrap {
+    border-radius: 12px; background: var(--card-background-color);
+    border: 1px solid var(--divider-color); overflow: hidden;
   }
   .chart-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 10px 2px;
   }
-  .chart-title {
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--primary-text-color);
+  .chart-label { font-size: 0.72rem; font-weight: 600; color: var(--secondary-text-color); }
+  .chart-current { font-size: 0.72rem; font-weight: 700; }
+  svg.sparkline { display: block; width: 100%; height: 56px; }
+
+  /* Transfer */
+  .transfer {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px; margin-bottom: 12px;
   }
-  .time-selector {
-    display: flex;
-    gap: 4px;
+  .traffic {
+    border: 1px solid var(--divider-color); border-radius: 10px;
+    padding: 8px 10px; background: var(--card-background-color);
   }
-  .time-btn {
-    padding: 4px 12px;
-    border-radius: 6px;
-    border: 1px solid var(--divider-color);
-    background: var(--card-background-color);
-    color: var(--primary-text-color);
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: all 0.2s;
+  .traffic-label {
+    font-size: 0.7rem; color: var(--secondary-text-color);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .time-btn:hover {
-    background: var(--primary-color);
-    color: white;
-    border-color: var(--primary-color);
+  .traffic-value {
+    margin-top: 3px; font-size: 0.9rem; font-weight: 700;
+    color: var(--primary-text-color); font-variant-numeric: tabular-nums;
   }
-  .time-btn.active {
-    background: var(--primary-color);
-    color: white;
-    border-color: var(--primary-color);
+
+  /* Footer */
+  .footer {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    padding-top: 10px; border-top: 1px solid var(--divider-color);
   }
-  .chart-container {
-    position: relative;
-    height: 250px;
-    background: var(--card-background-color);
-    border-radius: 12px;
-    border: 1px solid var(--divider-color);
-    padding: 12px;
+  .stat {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 0.8rem; color: var(--secondary-text-color);
+    padding: 4px 8px; border-radius: 8px;
+    background: color-mix(in srgb, var(--divider-color) 40%, transparent);
+  }
+  .stat ha-icon { --mdc-icon-size: 16px; color: var(--primary-color); }
+  .stat b { color: var(--primary-text-color); }
+
+  /* Unavailable */
+  .unavail {
+    text-align: center; padding: 28px 0;
+    color: var(--secondary-text-color); font-size: 0.9rem;
+  }
+  .unavail ha-icon { --mdc-icon-size: 38px; display: block; margin: 0 auto 8px;
+                     color: var(--primary-color); opacity: .4; }
+
+  @media (max-width: 520px) {
+    .panels { grid-template-columns: 1fr; }
+    .transfer { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 `;
 
-
-// ── Główna klasa karty ──────────────────────────────────────────────────────
+// ── Card ──────────────────────────────────────────────────────────────────────
 class NokiaFastMileCard extends HTMLElement {
   constructor() {
     super();
-    this.attachShadow({ mode: 'open' });
-    this._hass = null;
+    this.attachShadow({ mode: "open" });
     this._config = {};
-    this._entities = {};
-    this._charts = {};
-    this._chartLib = null;
-    this._timeRange = '24h'; // '24h', '7d', '30d'
-    this._historyData = {};
-    this._updateSchedule = null;
+    this._hass = null;
+    this._history = {};          // entity_id → [{t, v}]
+    this._historyFetchedAt = 0;
+    this._historyFetching = false;
   }
 
-  set hass(hass) {
-    this._hass = hass;
-    this._updateEntities();
-    
-    if (!this._chartLib) {
-      this._loadChartLibrary().then(() => {
-        this._render();
-        this._loadHistoryData();
-        this._scheduleUpdates();
-      });
-    } else {
-      this._render();
-      this._loadHistoryData();
-    }
-  }
+  // ── HA interface ──────────────────────────────────────────────────────────
 
   setConfig(config) {
     this._config = config;
+    this._render();
   }
 
-  getCardSize() {
-    return 6;
+  set hass(hass) {
+    const prev = this._hass;
+    this._hass = hass;
+
+    // Re-render only when relevant entities change
+    const ids = this._relevantIds();
+    const changed = !prev || ids.some(id => prev.states[id] !== hass.states[id]);
+    if (!changed) return;
+
+    this._render();
+
+    // Fetch history at most every 5 minutes
+    if (Date.now() - this._historyFetchedAt > 5 * 60 * 1000 && !this._historyFetching) {
+      this._fetchHistory();
+    }
   }
 
-  _updateEntities() {
-    if (!this._hass) return;
-
-    const baseEntity = this._config.entity || DEFAULT_ENTITY_ID;
-    const entityId = baseEntity.replace('_connection_state', '');
-
-    this._entities = {
-      connection_state: this._hass.states[`${entityId}_connection_state`],
-      wan_mode: this._hass.states[`${entityId}_wan_mode`],
-      wan_active: this._hass.states[`${entityId}_wan_active`],
-      uptime: this._hass.states[`${entityId}_uptime`],
-      sw_version: this._hass.states[`${entityId}_sw_version`],
-      serial_number: this._hass.states[`${entityId}_serial_number`],
-      connected_devices: this._hass.states[`${entityId}_connected_devices`],
-      unread_sms: this._hass.states[`${entityId}_unread_sms`],
-
-      // 5G signals
-      '5g_rsrp': this._hass.states[`${entityId}_5g_rsrp`],
-      '5g_rsrq': this._hass.states[`${entityId}_5g_rsrq`],
-      '5g_sinr': this._hass.states[`${entityId}_5g_sinr`],
-      '5g_signal_level': this._hass.states[`${entityId}_5g_signal_level`],
-      '5g_rsrp_strength_index': this._hass.states[`${entityId}_5g_rsrp_strength_index`],
-      '5g_band': this._hass.states[`${entityId}_5g_band`],
-      '5g_downlink_arfcn': this._hass.states[`${entityId}_5g_downlink_arfcn`],
-      '5g_physical_cell_id': this._hass.states[`${entityId}_5g_physical_cell_id`],
-
-      // LTE signals
-      'lte_rsrp': this._hass.states[`${entityId}_lte_rsrp`],
-      'lte_rsrq': this._hass.states[`${entityId}_lte_rsrq`],
-      'lte_rssi': this._hass.states[`${entityId}_lte_rssi`],
-      'lte_sinr': this._hass.states[`${entityId}_lte_sinr`],
-      'lte_signal_level': this._hass.states[`${entityId}_lte_signal_level`],
-      'lte_rsrp_strength_index': this._hass.states[`${entityId}_lte_rsrp_strength_index`],
-      'lte_band': this._hass.states[`${entityId}_lte_band`],
-      'lte_downlink_earfcn': this._hass.states[`${entityId}_lte_downlink_earfcn`],
-      'lte_physical_cell_id': this._hass.states[`${entityId}_lte_physical_cell_id`],
-
-      // Network details
-      apn: this._hass.states[`${entityId}_apn`],
-      cellular_connection_state: this._hass.states[`${entityId}_cellular_connection_state`],
-      ethernet_status: this._hass.states[`${entityId}_ethernet_status`],
-
-      // Transfer data
-      cellular_bytes_received: this._hass.states[`${entityId}_cellular_bytes_received`],
-      cellular_bytes_sent: this._hass.states[`${entityId}_cellular_bytes_sent`],
-      ethernet_bytes_received: this._hass.states[`${entityId}_ethernet_bytes_received`],
-      ethernet_bytes_sent: this._hass.states[`${entityId}_ethernet_bytes_sent`],
-      ethernet_packets_received: this._hass.states[`${entityId}_ethernet_packets_received`],
-      ethernet_packets_sent: this._hass.states[`${entityId}_ethernet_packets_sent`],
-    };
+  static getStubConfig() {
+    return { title: "Nokia FastMile 5G" };
   }
+
+  // ── Entity discovery ──────────────────────────────────────────────────────
+  // Finds sensor entities by friendly_name keyword (case-insensitive).
+  // With `has_entity_name = True` in HA, friendly_name = "{device} {sensor}",
+  // e.g. "Nokia FastMile 5G (192.168.192.1) 5G RSRP".
+
+  _find(keyword) {
+    const states = this._hass?.states;
+    if (!states) return null;
+    const kw = keyword.toLowerCase();
+    for (const [id, s] of Object.entries(states)) {
+      if (!id.startsWith("sensor.")) continue;
+      if ((s.attributes.friendly_name ?? "").toLowerCase().includes(kw)) return s;
+    }
+    return null;
+  }
+
+  _relevantIds() {
+    if (!this._hass) return [];
+    return Object.keys(this._hass.states).filter(id =>
+      id.startsWith("sensor.") &&
+      (this._hass.states[id].attributes.friendly_name ?? "").toLowerCase().includes("nokia fastmile")
+    );
+  }
+
+  // ── History (sparklines) ──────────────────────────────────────────────────
+
+  async _fetchHistory() {
+    if (!this._hass || this._historyFetching) return;
+    const s5g  = this._find("5g rsrp");
+    const sLte = this._find("lte rsrp");
+    const ids  = [s5g?.entity_id, sLte?.entity_id].filter(Boolean);
+    if (!ids.length) return;
+
+    this._historyFetching = true;
+    const now   = new Date();
+    const start = new Date(now - 2 * 3600 * 1000).toISOString();
+    const end   = now.toISOString();
+
+    try {
+      const data = await this._hass.callApi(
+        "GET",
+        `history/period/${start}?filter_entity_id=${ids.join(",")}&end_time=${end}&minimal_response&no_attributes`
+      );
+      if (Array.isArray(data)) {
+        for (const series of data) {
+          if (!series.length) continue;
+          const eid = series[0].entity_id;
+          this._history[eid] = series
+            .filter(s => !isNaN(parseFloat(s.state)))
+            .map(s => ({ t: new Date(s.last_changed).getTime(), v: parseFloat(s.state) }));
+        }
+      }
+    } catch (_) { /* history API unavailable */ }
+
+    this._historyFetchedAt = Date.now();
+    this._historyFetching  = false;
+    this._render();
+  }
+
+  // ── SVG sparkline ─────────────────────────────────────────────────────────
+
+  _sparklineSvg(points, color, gradId) {
+    const W = 300, H = 52, PAD = 6;
+
+    if (!points || points.length < 2) {
+      return `<svg class="sparkline" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <text x="${W/2}" y="${H/2+4}" text-anchor="middle" fill="var(--secondary-text-color)" font-size="11" font-family="sans-serif">Brak historii</text>
+      </svg>`;
+    }
+
+    const vals  = points.map(p => p.v);
+    const times = points.map(p => p.t);
+    const minV  = Math.min(...vals),  maxV = Math.max(...vals);
+    const minT  = Math.min(...times), maxT = Math.max(...times);
+    const vR    = maxV - minV || 1;
+    const tR    = maxT - minT || 1;
+
+    const x = t => ((t - minT) / tR * (W - 1)).toFixed(1);
+    const y = v => (H - PAD - (v - minV) / vR * (H - PAD * 2)).toFixed(1);
+
+    const pts    = points.map(p => `${x(p.t)},${y(p.v)}`).join(" ");
+    const area   = `0,${H} ${pts} ${W - 1},${H}`;
+    const lastV  = vals[vals.length - 1];
+    const lastY  = parseFloat(y(lastV));
+    const dotX   = parseFloat(x(times[times.length - 1]));
+
+    return `
+      <svg class="sparkline" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stop-color="${color}" stop-opacity="0.28"/>
+            <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <polygon points="${area}" fill="url(#${gradId})"/>
+        <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6"
+                  stroke-linejoin="round" stroke-linecap="round"/>
+        <circle cx="${dotX}" cy="${lastY}" r="2.5" fill="${color}"/>
+      </svg>`;
+  }
+
+  // ── HTML helpers ──────────────────────────────────────────────────────────
+
+  _barsHtml(level, color) {
+    const filled = level ?? 0;
+    const bars = [1,2,3,4,5].map(i =>
+      `<div class="bar b${i}${i <= filled ? " filled" : ""}" style="--bar-color:${color}"></div>`
+    ).join("");
+    return `<div class="bars">${bars}<span class="level-label" style="--bar-color:${color}">${level ?? "—"}/5</span></div>`;
+  }
+
+  _metricHtml(label, value, unit, color) {
+    const display = value === null ? "—" : `${value}`;
+    const suffix  = (value !== null && unit) ? ` <span style="font-size:.7em;font-weight:400">${unit}</span>` : "";
+    return `
+      <div class="metric">
+        <span class="metric-label">${label}</span>
+        <span class="metric-value" style="color:${color}">${esc(display)}${suffix}</span>
+      </div>`;
+  }
+
+  _trafficHtml(label, state) {
+    return `
+      <div class="traffic">
+        <div class="traffic-label">${esc(label)}</div>
+        <div class="traffic-value">${esc(fmtTraffic(state))}</div>
+      </div>`;
+  }
+
+  _chartHtml(state, label, color, gradId) {
+    const eid    = state?.entity_id;
+    const points = this._history[eid] ?? [];
+    const cur    = val(state);
+    const curTxt = cur !== null ? `${cur} dBm` : "—";
+    const curClr = cur !== null ? qColor(cur, Q.rsrp) : "var(--secondary-text-color)";
+
+    return `
+      <div class="chart-wrap">
+        <div class="chart-header">
+          <span class="chart-label">${label} — ostatnie 2h</span>
+          <span class="chart-current" style="color:${curClr}">${esc(curTxt)}</span>
+        </div>
+        ${this._sparklineSvg(points, color, gradId)}
+      </div>`;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   _render() {
-    if (!this._hass) return;
-
     const root = this.shadowRoot;
-    root.innerHTML = `
-      <style>${STYLES}</style>
-      <ha-card>
-        <div class="header">
+    root.innerHTML = "";
+    const style = document.createElement("style");
+    style.textContent = STYLES;
+    root.appendChild(style);
+    const card = document.createElement("ha-card");
+    card.innerHTML = this._html();
+    root.appendChild(card);
+  }
+
+  _html() {
+    if (!this._hass) return `<div class="unavail"><ha-icon icon="mdi:antenna"></ha-icon>Ładowanie…</div>`;
+
+    const title = this._config.title ?? "Nokia FastMile 5G";
+
+    // Entities
+    const eConn    = this._find("stan połączenia");
+    const eWanMode = this._find("tryb wan");
+    const eWanAct  = this._find("aktywny wan");
+
+    const e5gRsrp  = this._find("5g rsrp");
+    const e5gRsrq  = this._find("5g rsrq");
+    const e5gSinr  = this._find("5g sinr");
+    const e5gLvl   = this._find("5g poziom");
+    const e5gBand  = this._find("5g band");
+    const e5gArfcn = this._find("5g downlink arfcn");
+
+    const eLteRsrp = this._find("lte rsrp");
+    const eLteRsrq = this._find("lte rsrq");
+    const eLteRssi = this._find("lte rssi");
+    const eLteSinr = this._find("lte sinr");
+    const eLteLvl  = this._find("lte poziom");
+    const eLteBand = this._find("lte band");
+    const eLteArfcn = this._find("lte downlink earfcn");
+
+    const eCellRx = this._find("cellular bytes received");
+    const eCellTx = this._find("cellular bytes sent");
+    const eEthRx = this._find("ethernet bytes received");
+    const eEthTx = this._find("ethernet bytes sent");
+
+    const eUptime  = this._find("uptime");
+    const eDevices = this._find("podłączone urządzenia");
+    const eSms     = this._find("nieprzeczytane sms");
+
+    // Check if integration is present at all
+    if (!e5gRsrp && !eLteRsrp) {
+      return `
+        <div class="unavail">
+          <ha-icon icon="mdi:antenna"></ha-icon>
+          Nie znaleziono encji Nokia FastMile.<br>
+          <small>Sprawdź czy integracja jest zainstalowana.</small>
+        </div>`;
+    }
+
+    // Values
+    const connState = val(eConn);
+    const connected = typeof connState === "string"
+      ? connState.toLowerCase().includes("connect")
+      : null;
+
+    const badgeClass = connected === true ? "ok" : connected === false ? "err" : "unk";
+    const badgeText  = connected === true ? "Połączono"
+                     : connected === false ? "Rozłączono" : "Nieznany";
+
+    const wanMode = val(eWanMode) ?? "—";
+    const wanAct  = val(eWanAct)  ?? "";
+
+    // 5G values
+    const rsrp5g = val(e5gRsrp);
+    const rsrq5g = val(e5gRsrq);
+    const sinr5g = val(e5gSinr);
+    const lvl5g  = val(e5gLvl);
+    const band5g = val(e5gBand);
+    const arfcn5g = val(e5gArfcn);
+    const clr5g  = levelColor(lvl5g);
+
+    // LTE values
+    const rsrpLte = val(eLteRsrp);
+    const rsrqLte = val(eLteRsrq);
+    const rssiLte = val(eLteRssi);
+    const sinrLte = val(eLteSinr);
+    const lvlLte  = val(eLteLvl);
+    const bandLte = val(eLteBand);
+    const arfcnLte = val(eLteArfcn);
+    const clrLte  = levelColor(lvlLte);
+
+    // Footer
+    const uptime  = val(eUptime);
+    const devices = val(eDevices);
+    const sms     = val(eSms);
+
+    // Last update from any entity
+    const lastChanged = e5gRsrp?.last_changed ?? eLteRsrp?.last_changed;
+    const updatedStr  = lastChanged
+      ? new Date(lastChanged).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })
+      : "";
+
+    return `
+      <!-- Header -->
+      <div class="header">
+        <div>
           <div class="header-title">
-            <ha-icon icon="mdi:router-network"></ha-icon>
-            Nokia FastMile 5G
+            <ha-icon icon="mdi:antenna"></ha-icon>
+            ${esc(title)}
+          </div>
+          <div class="header-meta">
+            ${esc(wanMode)}${wanAct ? ` · ${esc(wanAct)}` : ""}
+            ${updatedStr ? ` · aktualizacja ${esc(updatedStr)}` : ""}
           </div>
         </div>
+        <span class="badge ${badgeClass}">${badgeText}</span>
+      </div>
 
-        ${this._renderStatus()}
-
-        <div class="signals-grid">
-          ${this._renderSignalCard('5g_rsrp', '5G RSRP', 'dBm')}
-          ${this._renderSignalCard('5g_rsrq', '5G RSRQ', 'dB')}
-          ${this._renderSignalCard('5g_sinr', '5G SINR', 'dB')}
-          ${this._renderSignalCard('5g_band', '5G Band', '')}
-          ${this._renderSignalCard('5g_downlink_arfcn', '5G ARFCN', '')}
-          ${this._renderSignalCard('lte_rsrp', 'LTE RSRP', 'dBm')}
-          ${this._renderSignalCard('lte_rsrq', 'LTE RSRQ', 'dB')}
-          ${this._renderSignalCard('lte_rssi', 'LTE RSSI', 'dBm')}
-          ${this._renderSignalCard('lte_band', 'LTE Band', '')}
-          ${this._renderSignalCard('lte_downlink_earfcn', 'LTE EARFCN', '')}
+      <!-- Signal panels -->
+      <div class="panels">
+        <!-- 5G NR -->
+        <div class="panel">
+          <div class="panel-title">5G NR</div>
+          ${this._barsHtml(lvl5g, clr5g)}
+          ${this._metricHtml("RSRP", rsrp5g, "dBm", qColor(rsrp5g, Q.rsrp))}
+          ${this._metricHtml("RSRQ", rsrq5g, "dB",  qColor(rsrq5g, Q.rsrq))}
+          ${this._metricHtml("SINR", sinr5g, "dB",  qColor(sinr5g, Q.sinr))}
+          ${this._metricHtml("Band", band5g, "", "var(--primary-text-color)")}
+          ${this._metricHtml("ARFCN", arfcn5g, "", "var(--primary-text-color)")}
         </div>
-
-        <div class="transfer-section">
-          <div class="transfer-title">Transfer danych</div>
-          <div class="transfer-grid">
-            ${this._renderTransferItem('cellular_bytes_received', 'Cellular ↓')}
-            ${this._renderTransferItem('cellular_bytes_sent', 'Cellular ↑')}
-            ${this._renderTransferItem('ethernet_bytes_received', 'Ethernet ↓')}
-            ${this._renderTransferItem('ethernet_bytes_sent', 'Ethernet ↑')}
-          </div>
+        <!-- LTE -->
+        <div class="panel">
+          <div class="panel-title">LTE</div>
+          ${this._barsHtml(lvlLte, clrLte)}
+          ${this._metricHtml("RSRP", rsrpLte, "dBm", qColor(rsrpLte, Q.rsrp))}
+          ${this._metricHtml("RSRQ", rsrqLte, "dB",  qColor(rsrqLte, Q.rsrq))}
+          ${this._metricHtml("RSSI", rssiLte, "dBm", qColor(rssiLte, Q.rsrp))}
+          ${this._metricHtml("SINR", sinrLte, "dB",  qColor(sinrLte, Q.sinr))}
+          ${this._metricHtml("Band", bandLte, "", "var(--primary-text-color)")}
+          ${this._metricHtml("EARFCN", arfcnLte, "", "var(--primary-text-color)")}
         </div>
+      </div>
 
-        <div class="system-info">
-          ${this._renderInfoItem('uptime', 'Uptime', 's')}
-          ${this._renderInfoItem('connected_devices', 'Urządzenia')}
-          ${this._renderInfoItem('unread_sms', 'SMS')}
-          ${this._renderInfoItem('sw_version', 'Wersja')}
-          ${this._renderInfoItem('apn', 'APN')}
-          ${this._renderInfoItem('cellular_connection_state', 'Cellular')}
-          ${this._renderInfoItem('ethernet_status', 'Ethernet')}
+      <!-- Transfer -->
+      <div class="transfer">
+        ${this._trafficHtml("Cellular RX", eCellRx)}
+        ${this._trafficHtml("Cellular TX", eCellTx)}
+        ${this._trafficHtml("Ethernet RX", eEthRx)}
+        ${this._trafficHtml("Ethernet TX", eEthTx)}
+      </div>
+
+      <!-- Sparkline charts -->
+      <div class="charts">
+        ${this._chartHtml(e5gRsrp,  "5G RSRP",  "var(--primary-color)",              "g5")}
+        ${this._chartHtml(eLteRsrp, "LTE RSRP", "var(--accent-color, var(--info-color, #2196f3))", "lt")}
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <div class="stat">
+          <ha-icon icon="mdi:timer-outline"></ha-icon>
+          Uptime <b>${esc(fmtUptime(uptime))}</b>
         </div>
-
-        <div class="charts-section">
-          <div class="chart-header">
-            <div class="chart-title">Sygnały (RSRP)</div>
-            <div class="time-selector">
-              <button class="time-btn active" data-range="24h" onclick="this.getRootNode().host._setTimeRange('24h')">24h</button>
-              <button class="time-btn" data-range="7d" onclick="this.getRootNode().host._setTimeRange('7d')">7d</button>
-              <button class="time-btn" data-range="30d" onclick="this.getRootNode().host._setTimeRange('30d')">30d</button>
-            </div>
-          </div>
-          <div class="chart-container">
-            <canvas id="signal-chart-canvas"></canvas>
-          </div>
-
-          <div class="chart-header">
-            <div class="chart-title">Transfer danych (Download)</div>
-          </div>
-          <div class="chart-container">
-            <canvas id="transfer-chart-canvas"></canvas>
-          </div>
+        <div class="stat">
+          <ha-icon icon="mdi:devices"></ha-icon>
+          <b>${devices ?? "—"}</b> urządz.
         </div>
-      </ha-card>
-    `;
-
-    // Podepnij event listenery do przycisków
-    root.querySelectorAll('.time-btn').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        const range = e.target.dataset.range;
-        this._setTimeRange(range);
-      });
-    });
-  }
-
-  _renderStatus() {
-    const state = this._entities.connection_state;
-    if (!state) return '';
-
-    const isConnected = state.state === 'Connected';
-    const icon = isConnected ? 'mdi:wifi-check' : 'mdi:wifi-off';
-    const color = isConnected ? 'var(--success-color, #10b981)' : 'var(--error-color, #ef4444)';
-
-    return `
-      <div class="status-row" style="border-left: 4px solid ${color};">
-        <ha-icon class="status-icon" icon="${icon}" style="color: ${color};"></ha-icon>
-        <div class="status-text">
-          <div class="status-title">${state.state}</div>
-          <div class="status-subtitle">
-            ${this._entities.wan_mode?.state || 'Unknown'} • ${this._entities.wan_active?.state || 'Unknown'}
-          </div>
+        <div class="stat">
+          <ha-icon icon="mdi:message-badge-outline"></ha-icon>
+          SMS <b>${sms ?? "—"}</b>
         </div>
       </div>
     `;
-  }
-
-  _renderSignalCard(key, label, unit) {
-    const entity = this._entities[key];
-    if (!entity) return '';
-
-    const value = entity.state;
-    const type = key.startsWith('5g') ? '5G' : 'LTE';
-
-    return `
-      <div class="signal-card">
-        <div class="signal-value">${value !== 'unknown' ? value : '—'}</div>
-        <div class="signal-unit">${unit}</div>
-        <div class="signal-label">${label.replace(/5G |LTE /, '')}</div>
-        <div class="signal-type">${type}</div>
-      </div>
-    `;
-  }
-
-  _renderTransferItem(key, label) {
-    const entity = this._entities[key];
-    if (!entity) return '';
-
-    const value = parseInt(entity.state) || 0;
-    const formatted = this._formatBytes(value);
-
-    return `
-      <div class="transfer-item">
-        <span class="transfer-label">${label}</span>
-        <span class="transfer-value">${formatted}</span>
-      </div>
-    `;
-  }
-
-  _renderInfoItem(key, label, unit = '') {
-    const entity = this._entities[key];
-    if (!entity) return '';
-
-    let value = entity.state;
-    if (key === 'uptime' && value !== 'unknown') {
-      value = this._formatDuration(parseInt(value));
-    }
-
-    return `
-      <div class="info-item">
-        <div class="info-value">${value !== 'unknown' ? value : '—'}</div>
-        <div class="info-label">${label}</div>
-      </div>
-    `;
-  }
-
-  _formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  }
-
-  _formatDuration(seconds) {
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-
-    if (days > 0) return `${days}d ${hours}h`;
-    if (hours > 0) return `${hours}h ${mins}m`;
-    return `${mins}m`;
-  }
-
-  // ── Ładowanie biblioteki Chart.js ──
-  async _loadChartLibrary() {
-    return new Promise((resolve) => {
-      if (window.Chart) {
-        this._chartLib = window.Chart;
-        resolve();
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.src = CHART_LIBRARY_URL;
-      script.onload = () => {
-        this._chartLib = window.Chart;
-        resolve();
-      };
-      script.onerror = () => {
-        console.warn('Failed to load Chart.js');
-        resolve();
-      };
-      document.head.appendChild(script);
-    });
-  }
-
-  // ── Harmonogram aktualizacji ──
-  _scheduleUpdates() {
-    if (this._updateSchedule) clearInterval(this._updateSchedule);
-    this._updateSchedule = setInterval(() => this._loadHistoryData(), 300000); // 5 minut
-  }
-
-  // ── Pobieranie danych historycznych z API HA ──
-  async _loadHistoryData() {
-    if (!this._hass) return;
-
-    const baseEntity = this._config.entity || DEFAULT_ENTITY_ID;
-    const entityId = baseEntity.replace('_connection_state', '');
-
-    // Mapowanie encji do pobierania historii
-    const historyEntities = [
-      `${entityId}_5g_rsrp`,
-      `${entityId}_lte_rsrp`,
-      `${entityId}_cellular_bytes_received`,
-      `${entityId}_ethernet_bytes_received`,
-    ];
-
-    try {
-      const endTime = new Date();
-      const startTime = new Date(endTime.getTime() - this._getTimeRangeMs());
-
-      const response = await this._hass.callWS({
-        type: 'history/history_stats',
-        start_time: startTime.toISOString(),
-        end_time: endTime.toISOString(),
-        entity_ids: historyEntities,
-        period: '1h',
-        statistic_types: ['mean'],
-      }).catch(() => null);
-
-      if (response) {
-        this._historyData = response;
-        this._updateCharts();
-      } else {
-        // Fallback: pobierz data bezpośrednio z historii
-        await this._loadHistoryFallback(historyEntities, startTime, endTime);
-      }
-    } catch (error) {
-      console.warn('Error loading history:', error);
-    }
-  }
-
-  async _loadHistoryFallback(entityIds, startTime, endTime) {
-    if (!this._hass?.auth?.callApi) return;
-
-    try {
-      const startStr = startTime.toISOString();
-      const endStr = endTime.toISOString();
-      const entitiesParam = entityIds.join(',');
-
-      const history = await this._hass.auth.callApi(
-        'get',
-        `/api/history/period/${startStr}?end_time=${endStr}&entity_ids=${entitiesParam}`
-      );
-
-      if (Array.isArray(history)) {
-        this._processHistoryData(history);
-        this._updateCharts();
-      }
-    } catch (error) {
-      console.warn('Error with history fallback:', error);
-    }
-  }
-
-  _processHistoryData(history) {
-    this._historyData = {};
-    history.forEach((entityHistory) => {
-      if (entityHistory[0]) {
-        const entityId = entityHistory[0].entity_id;
-        this._historyData[entityId] = entityHistory;
-      }
-    });
-  }
-
-  _getTimeRangeMs() {
-    switch (this._timeRange) {
-      case '7d': return 7 * 24 * 60 * 60 * 1000;
-      case '30d': return 30 * 24 * 60 * 60 * 1000;
-      default: return 24 * 60 * 60 * 1000; // 24h
-    }
-  }
-
-  // ── Aktualizacja wykresów ──
-  _updateCharts() {
-    if (!this._chartLib) return;
-
-    this._updateSignalChart();
-    this._updateTransferChart();
-  }
-
-  _updateSignalChart() {
-    const ctx = this.shadowRoot.querySelector('#signal-chart-canvas');
-    if (!ctx) return;
-
-    const baseEntity = this._config.entity || DEFAULT_ENTITY_ID;
-    const entityId = baseEntity.replace('_connection_state', '');
-
-    const rsrpData = this._extractChartData(`${entityId}_5g_rsrp`);
-    const lteRsrpData = this._extractChartData(`${entityId}_lte_rsrp`);
-
-    const labels = rsrpData.times.map((t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-
-    if (this._charts.signal) {
-      this._charts.signal.destroy();
-    }
-
-    this._charts.signal = new this._chartLib(ctx, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          {
-            label: '5G RSRP (dBm)',
-            data: rsrpData.values,
-            borderColor: 'rgb(59, 130, 246)',
-            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-            tension: 0.3,
-            fill: true,
-          },
-          {
-            label: 'LTE RSRP (dBm)',
-            data: lteRsrpData.values,
-            borderColor: 'rgb(34, 197, 94)',
-            backgroundColor: 'rgba(34, 197, 94, 0.1)',
-            tension: 0.3,
-            fill: true,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: true, position: 'top' },
-        },
-        scales: {
-          y: {
-            beginAtZero: false,
-            title: { display: true, text: 'dBm' },
-          },
-        },
-      },
-    });
-  }
-
-  _updateTransferChart() {
-    const ctx = this.shadowRoot.querySelector('#transfer-chart-canvas');
-    if (!ctx) return;
-
-    const baseEntity = this._config.entity || DEFAULT_ENTITY_ID;
-    const entityId = baseEntity.replace('_connection_state', '');
-
-    const cellularData = this._extractChartData(`${entityId}_cellular_bytes_received`);
-    const ethernetData = this._extractChartData(`${entityId}_ethernet_bytes_received`);
-
-    const labels = cellularData.times.map((t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-
-    if (this._charts.transfer) {
-      this._charts.transfer.destroy();
-    }
-
-    this._charts.transfer = new this._chartLib(ctx, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          {
-            label: 'Cellular Download (MB)',
-            data: cellularData.values.map((v) => v / 1048576),
-            borderColor: 'rgb(139, 92, 246)',
-            backgroundColor: 'rgba(139, 92, 246, 0.1)',
-            tension: 0.3,
-            fill: true,
-          },
-          {
-            label: 'Ethernet Download (MB)',
-            data: ethernetData.values.map((v) => v / 1048576),
-            borderColor: 'rgb(236, 72, 153)',
-            backgroundColor: 'rgba(236, 72, 153, 0.1)',
-            tension: 0.3,
-            fill: true,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: true, position: 'top' },
-        },
-        scales: {
-          y: {
-            beginAtZero: true,
-            title: { display: true, text: 'MB' },
-          },
-        },
-      },
-    });
-  }
-
-  _extractChartData(entityId) {
-    const history = this._historyData[entityId] || [];
-    const times = [];
-    const values = [];
-
-    history.forEach((state) => {
-      if (state.state && state.state !== 'unknown' && !isNaN(parseFloat(state.state))) {
-        times.push(state.last_changed || state.last_updated);
-        values.push(parseFloat(state.state));
-      }
-    });
-
-    return { times, values };
-  }
-
-  // ── Obsługa zmiany zakresu czasowego ──
-  _setTimeRange(range) {
-    this._timeRange = range;
-    this.shadowRoot.querySelectorAll('.time-btn').forEach((btn) => {
-      btn.classList.remove('active');
-    });
-    this.shadowRoot.querySelector(`[data-range="${range}"]`)?.classList.add('active');
-    this._loadHistoryData();
   }
 }
 
-customElements.define('nokia-fastmile-card', NokiaFastMileCard);
+if (!customElements.get("nokia-fastmile-card")) {
+  customElements.define("nokia-fastmile-card", NokiaFastMileCard);
+}
 
-// ── Konfiguracja dla Lovelace ───────────────────────────────────────────────
 window.customCards = window.customCards || [];
 window.customCards.push({
-  type: 'nokia-fastmile-card',
-  name: 'Nokia FastMile Card',
-  description: 'Karta statusu routera Nokia FastMile 5G',
-  preview: true,
+  type: "nokia-fastmile-card",
+  name: "Nokia FastMile 5G Card",
+  description: "Monitoring sygnału 5G/LTE z wykresami historii.",
+  preview: false,
 });
