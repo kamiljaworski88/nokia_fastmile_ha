@@ -54,6 +54,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 import logging
 import os
 from datetime import datetime
@@ -110,6 +111,7 @@ from .const import (
     DEFAULT_USE_HTTPS,
     DOMAIN,
     LOGIN_SUCCESS_STATUS,
+    PATH_CHECK_EXPIRE,
     PATH_DEVICE_INFO,
     PATH_LOGIN,
     PATH_LOGIN_NONCE,
@@ -196,6 +198,19 @@ def _str_or_none(val: Any) -> str | None:
     return str(val).strip() if val not in (None, "", "N/A", "null") else None
 
 
+def _json_or_raise(text: str, path: str) -> dict[str, Any]:
+    try:
+        data = json.loads(text)
+    except ValueError:
+        _LOGGER.debug(
+            "nokia_fastmile: non-JSON response from %s: %.200s",
+            path,
+            text,
+        )
+        raise
+    return data or {}
+
+
 # ── Coordinator ───────────────────────────────────────────────────────────────
 
 class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -250,6 +265,8 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device_info = await self._get(PATH_DEVICE_INFO)
             _LOGGER.debug("nokia_fastmile: device_info data: %s", device_info)
             self._parse_device_info(device_info, result)
+
+            await self._touch_session()
 
             try:
                 status = await self._get(PATH_STATUS)
@@ -389,7 +406,13 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _get(self, path: str) -> dict[str, Any]:
         assert self._session is not None
         try:
-            async with self._session.get(self._base_url() + path) as r:
+            async with self._session.get(
+                self._base_url() + path,
+                headers={
+                    "Accept": "application/json, text/plain, */*",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            ) as r:
                 if r.status in (401, 403):
                     _LOGGER.debug("nokia_fastmile: received %s on path %s, resetting auth", r.status, path)
                     self._authenticated = False
@@ -402,23 +425,45 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         await self._login()
                         
                         # Retry the request with fresh login
-                        async with self._session.get(self._base_url() + path) as r2:
+                        async with self._session.get(
+                            self._base_url() + path,
+                            headers={
+                                "Accept": "application/json, text/plain, */*",
+                                "Content-Type": "application/x-www-form-urlencoded",
+                            },
+                        ) as r2:
                             if r2.status in (401, 403):
                                 _LOGGER.warning("nokia_fastmile: still %s after re-login on path %s", r2.status, path)
                                 r2.raise_for_status()
-                            return await r2.json(content_type=None) or {}
+                            return _json_or_raise(await r2.text(), path)
                     else:
                         _LOGGER.warning("nokia_fastmile: max retries exceeded for path %s", path)
                         r.raise_for_status()
                 
                 r.raise_for_status()
-                return await r.json(content_type=None) or {}
+                return _json_or_raise(await r.text(), path)
         
         except aiohttp.ClientResponseError:
             raise
         except Exception as err:
             _LOGGER.error("nokia_fastmile: unexpected error in _get(%s): %s", path, err)
             raise
+
+    async def _touch_session(self) -> None:
+        assert self._session is not None
+        try:
+            async with self._session.get(
+                self._base_url() + PATH_CHECK_EXPIRE,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            ) as r:
+                body = await r.text()
+                _LOGGER.debug(
+                    "nokia_fastmile: session check status=%s body=%.80s",
+                    r.status,
+                    body,
+                )
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            _LOGGER.debug("nokia_fastmile: session check skipped: %s", err)
 
     # ── parsers ───────────────────────────────────────────────────────────────
 
