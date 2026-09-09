@@ -26,6 +26,7 @@ PATH_DEVICE_INFO = "/dashboard_device_info_status_web_app.cgi"
 PATH_STATUS = "/status_get_web_app.cgi"
 PATH_STATISTICS = "/statistics_status_web_app.cgi"
 PATH_CHECK_EXPIRE = "/check_expire_web_app.cgi"
+PATH_REBOOT = "/reboot_web_app.cgi"
 
 # Nokia-specific HTTP status codes for successful login
 LOGIN_SUCCESS_STATUS = (200, 299)

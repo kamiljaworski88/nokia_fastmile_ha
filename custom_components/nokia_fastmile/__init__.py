@@ -12,7 +12,7 @@ from .coordinator import NokiaFastMileCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "button"]
 FRONTEND_URL = f"/{DOMAIN}/nokia-fastmile-card.js"
 FRONTEND_PATH = Path(__file__).with_name("nokia-fastmile-card.js")
 

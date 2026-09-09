@@ -117,6 +117,7 @@ from .const import (
     PATH_LOGIN_NONCE,
     PATH_LOGIN_SALT,
     PATH_OVERVIEW,
+    PATH_REBOOT,
     PATH_STATISTICS,
     PATH_STATUS,
     SCAN_INTERVAL,
@@ -733,6 +734,56 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             _LOGGER.debug("nokia_fastmile: session check skipped: %s", err)
+
+    async def async_reboot(self) -> None:
+        """Request a reboot of the router using the authenticated WebUI session."""
+        assert self._session is not None
+
+        for attempt in range(2):
+            await self._ensure_auth()
+            if not self._token:
+                raise aiohttp.ClientResponseError(
+                    None,
+                    (),
+                    status=401,
+                    message="No CSRF token available for reboot",
+                )
+
+            async with self._session.post(
+                self._base_url() + PATH_REBOOT,
+                data={"csrf_token": self._token},
+                headers=self._request_headers(),
+            ) as response:
+                body = await response.text()
+                if response.status in (401, 403) and attempt == 0:
+                    _LOGGER.debug(
+                        "nokia_fastmile: reboot request received HTTP %s, re-authenticating",
+                        response.status,
+                    )
+                    self._authenticated = False
+                    self._sid = None
+                    self._token = None
+                    continue
+
+                response.raise_for_status()
+                _LOGGER.info(
+                    "nokia_fastmile: router reboot requested successfully (HTTP %s, body=%.120s)",
+                    response.status,
+                    body,
+                )
+
+            # The device becomes unavailable shortly after accepting the request.
+            self._authenticated = False
+            self._sid = None
+            self._token = None
+            return
+
+        raise aiohttp.ClientResponseError(
+            None,
+            (),
+            status=401,
+            message="Router rejected reboot request after re-login",
+        )
 
     def _request_headers(self, *, content_type: str | None = "application/x-www-form-urlencoded") -> dict[str, str]:
         headers = {

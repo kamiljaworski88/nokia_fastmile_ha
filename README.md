@@ -94,6 +94,29 @@ są pobierane z endpointu:
 Jeżeli ten endpoint nie odpowie poprawnie, integracja pominie tylko statystyki
 transferu i nadal zaktualizuje podstawowe dane 5G/LTE oraz informacje o urządzeniu.
 
+## Restart routera
+
+Integracja udostępnia encję `button` o nazwie `Restart router` przy urządzeniu
+Nokia FastMile. Jej naciśnięcie wysyła do routera żądanie restartu z aktywnej,
+uwierzytelnionej sesji. W trakcie restartu sensory mogą być przez chwilę
+niedostępne.
+
+Przykładowa natywna karta Lovelace, niewymagająca dodatkowego zasobu JavaScript:
+
+```yaml
+type: button
+entity: button.nokia_fastmile_5g_restart_router
+name: Restart router
+icon: mdi:restart
+tap_action:
+  action: call-service
+  service: button.press
+  target:
+    entity_id: button.nokia_fastmile_5g_restart_router
+  confirmation:
+    text: Czy na pewno zrestartować router Nokia FastMile?
+```
+
 ## Dodatkowe dane
 
 Od wersji `1.0.5` integracja probuje uzupelniac brakujace liczniki transferu z
