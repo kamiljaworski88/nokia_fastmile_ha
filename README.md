@@ -5,12 +5,12 @@ Ta dokumentacja opisuje integrację `nokia_fastmile` dla Home Assistant, która 
 ## Instalacja
 
 1. Umieść katalog `custom_components/nokia_fastmile` w katalogu `custom_components` swojej instalacji Home Assistant.
-2. Umieść plik `www/nokia-fastmile-card.js` w katalogu `www` swojej instalacji Home Assistant.
+2. Jeżeli instalujesz ręcznie, umieść plik `www/nokia-fastmile-card.js` w katalogu `www` swojej instalacji Home Assistant. Przy instalacji przez HACS użyj adresu karty serwowanego przez integrację.
 3. Dodaj do `configuration.yaml`:
    ```yaml
    frontend:
      extra_module_url:
-       - /local/nokia-fastmile-card.js
+      - /nokia_fastmile/nokia-fastmile-card.js?v=1.0.23
    ```
 4. Zrestartuj Home Assistant.
 5. Przejdź do `Ustawienia > Urządzenia i usługi > Dodaj integrację` i wyszukaj `Nokia FastMile 5G`.
