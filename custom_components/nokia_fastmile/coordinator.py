@@ -214,7 +214,12 @@ def _json_or_raise(text: str, path: str) -> dict[str, Any]:
 def _has_session_cookie(session: aiohttp.ClientSession) -> bool:
     if session.cookie_jar is None:
         return False
-    return any(cookie.key.lower() == "sid" for cookie in session.cookie_jar)
+    return any(
+        cookie.key.lower() == "sid"
+        and cookie.value
+        and cookie.value.lower() != "deleted"
+        for cookie in session.cookie_jar
+    )
 
 
 # ── Coordinator ───────────────────────────────────────────────────────────────
