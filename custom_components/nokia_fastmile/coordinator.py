@@ -577,7 +577,17 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     )
                     return
                 if login_result == -2:
-                    self._login_blocked_until = datetime.now() + timedelta(minutes=5)
+                    lock_seconds = _int_or_none(login_reason)
+                    if lock_seconds is None or lock_seconds <= 0:
+                        lock_seconds = 300
+                    self._login_blocked_until = datetime.now() + timedelta(
+                        seconds=lock_seconds + 5
+                    )
+                    _LOGGER.warning(
+                        "nokia_fastmile: router login locked for %s seconds, next attempt after %s",
+                        lock_seconds,
+                        self._login_blocked_until.isoformat(timespec="seconds"),
+                    )
                 _LOGGER.warning(
                     "nokia_fastmile: login rejected status=%s result=%s reason=%s body=%s payload_safe=%s",
                     r.status,
