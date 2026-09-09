@@ -143,6 +143,14 @@ def _std_b64decode(s: str) -> bytes:
     return base64.b64decode(s)
 
 
+def _sha256_hex(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _sha256_url(value: str, nonce: str) -> str:
+    return _nokia_b64encode(hashlib.sha256((value + nonce).encode()).digest())
+
+
 # ── Coordinator data ──────────────────────────────────────────────────────────
 
 def _empty_data() -> dict[str, Any]:
@@ -259,6 +267,7 @@ def _build_login_payload(
     username: str,
     password: str,
     nonce_data: dict[str, Any],
+    alati: str,
     *,
     dotted_nonce: bool = True,
 ) -> dict[str, str]:
@@ -266,18 +275,19 @@ def _build_login_payload(
     random_key: str = str(nonce_data.get("randomKey", ""))
     iterations: int = int(nonce_data.get("iterations", 1))
     nonce_bytes = _std_b64decode(nonce_b64)
+    escaped_nonce = _nokia_b64encode(nonce_bytes) if dotted_nonce else nonce_b64
+    password_hash = _sha256_hex(alati + password) if iterations >= 1 else alati + password
+
+    for _ in range(1, iterations):
+        password_hash = hashlib.sha256(bytes.fromhex(password_hash)).hexdigest()
+
+    user_password_hash = _sha256_hex(username + password_hash.lower())
 
     return {
-        "userhash": _nokia_b64encode(
-            hashlib.pbkdf2_hmac("sha256", username.encode(), nonce_bytes, iterations)
-        ),
-        "RandomKeyhash": _nokia_b64encode(
-            hashlib.pbkdf2_hmac("sha256", random_key.encode(), nonce_bytes, iterations)
-        ),
-        "response": _nokia_b64encode(
-            hashlib.pbkdf2_hmac("sha256", password.encode(), nonce_bytes, iterations)
-        ),
-        "nonce": _nokia_b64encode(nonce_bytes) if dotted_nonce else nonce_b64,
+        "userhash": _sha256_url(username, nonce_b64),
+        "RandomKeyhash": _sha256_url(random_key, nonce_b64),
+        "response": _sha256_url(user_password_hash, nonce_b64),
+        "nonce": escaped_nonce,
         "enckey": _nokia_b64encode(os.urandom(16)),
         "enciv": _nokia_b64encode(os.urandom(16)),
     }
@@ -443,16 +453,23 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("nokia_fastmile: nonce_data=%s", nonce_data)
 
             async with self._session.get(
-                base + PATH_LOGIN_SALT,
+                (
+                    base
+                    + PATH_LOGIN_SALT
+                    + f"&userhash={_sha256_url(username, nonce_data['nonce'])}"
+                    + f"&nonce={_nokia_b64encode(_std_b64decode(nonce_data['nonce']))}"
+                ),
                 headers=self._request_headers(),
             ) as r:
                 r.raise_for_status()
+                salt_data = await r.json(content_type=None)
                 _LOGGER.debug("nokia_fastmile: salt fetch completed status=%s", r.status)
 
             payload = _build_login_payload(
                 username,
                 password,
                 nonce_data,
+                str(salt_data.get("alati", "")),
                 dotted_nonce=dotted_nonce,
             )
             if mode == "json":
