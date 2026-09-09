@@ -94,6 +94,16 @@ są pobierane z endpointu:
 Jeżeli ten endpoint nie odpowie poprawnie, integracja pominie tylko statystyki
 transferu i nadal zaktualizuje podstawowe dane 5G/LTE oraz informacje o urządzeniu.
 
+## Dodatkowe dane
+
+Od wersji `1.0.5` integracja probuje uzupelniac brakujace liczniki transferu z
+`/statistics_status_web_app.cgi`, gdy `/status_get_web_app.cgi` nie zwroci
+wszystkich pol.
+
+Dodatkowo pobierane sa pola radiowe i sieciowe: `5G Band`, `5G Downlink ARFCN`,
+`LTE Band`, `LTE Downlink EARFCN`, `APN`, `Cellular Connection State` oraz
+`Ethernet Status`.
+
 ## Wersja
 
 Aktualnie obsługiwana wersja firmware routera: `1.2302.00.0355`.

@@ -25,6 +25,7 @@ Authentication (3 steps):
 Data endpoints (plain GET, no body):
   /overview_get_web_app.cgi
   /status_get_web_app.cgi
+  /statistics_status_web_app.cgi
   /dashboard_device_info_status_web_app.cgi
 
 overview response (confirmed):
@@ -70,21 +71,31 @@ from .const import (
     CONF_USE_HTTPS,
     CONF_USERNAME,
     DATA_5G_RSRP,
+    DATA_5G_BAND,
+    DATA_5G_DOWNLINK_ARFCN,
+    DATA_5G_PHYSICAL_CELL_ID,
     DATA_5G_RSRP_STRENGTH_INDEX,
     DATA_5G_RSRQ,
     DATA_5G_SIGNAL_LEVEL,
     DATA_5G_SINR,
     DATA_CELLULAR_BYTES_RECEIVED,
     DATA_CELLULAR_BYTES_SENT,
+    DATA_CELLULAR_CONNECTION_STATE,
+    DATA_CELLULAR_IPV4,
     DATA_CONNECTION_STATE,
     DATA_CONNECTED_DEVICES,
     DATA_ETHERNET_BYTES_RECEIVED,
     DATA_ETHERNET_BYTES_SENT,
     DATA_ETHERNET_PACKETS_RECEIVED,
     DATA_ETHERNET_PACKETS_SENT,
+    DATA_ETHERNET_STATUS,
     DATA_ERROR,
     DATA_LAST_UPDATE,
+    DATA_APN,
     DATA_LTE_RSRP,
+    DATA_LTE_BAND,
+    DATA_LTE_DOWNLINK_EARFCN,
+    DATA_LTE_PHYSICAL_CELL_ID,
     DATA_LTE_RSRP_STRENGTH_INDEX,
     DATA_LTE_RSRQ,
     DATA_LTE_RSSI,
@@ -104,6 +115,7 @@ from .const import (
     PATH_LOGIN_NONCE,
     PATH_LOGIN_SALT,
     PATH_OVERVIEW,
+    PATH_STATISTICS,
     PATH_STATUS,
     SCAN_INTERVAL,
 )
@@ -138,15 +150,25 @@ def _empty_data() -> dict[str, Any]:
         DATA_5G_SINR: None,
         DATA_5G_SIGNAL_LEVEL: None,
         DATA_5G_RSRP_STRENGTH_INDEX: None,
+        DATA_5G_PHYSICAL_CELL_ID: None,
+        DATA_5G_DOWNLINK_ARFCN: None,
+        DATA_5G_BAND: None,
         DATA_LTE_RSRP: None,
         DATA_LTE_RSRQ: None,
         DATA_LTE_RSSI: None,
         DATA_LTE_SINR: None,
         DATA_LTE_SIGNAL_LEVEL: None,
         DATA_LTE_RSRP_STRENGTH_INDEX: None,
+        DATA_LTE_PHYSICAL_CELL_ID: None,
+        DATA_LTE_DOWNLINK_EARFCN: None,
+        DATA_LTE_BAND: None,
         DATA_CONNECTION_STATE: None,
         DATA_WAN_MODE: None,
         DATA_WAN_ACTIVE: None,
+        DATA_APN: None,
+        DATA_CELLULAR_CONNECTION_STATE: None,
+        DATA_CELLULAR_IPV4: None,
+        DATA_ETHERNET_STATUS: None,
         DATA_CELLULAR_BYTES_RECEIVED: None,
         DATA_CELLULAR_BYTES_SENT: None,
         DATA_ETHERNET_BYTES_RECEIVED: None,
@@ -232,6 +254,7 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 status = await self._get(PATH_STATUS)
                 _LOGGER.debug("nokia_fastmile: status data: %s", status)
+                self._parse_overview(status, result)
                 self._parse_status(status, result)
             except aiohttp.ClientResponseError as err:
                 _LOGGER.debug(
@@ -243,6 +266,22 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "nokia_fastmile: optional status endpoint returned invalid JSON: %s",
                     err,
                 )
+
+            if self._missing_transfer_data(result):
+                try:
+                    statistics = await self._get(PATH_STATISTICS)
+                    _LOGGER.debug("nokia_fastmile: statistics data: %s", statistics)
+                    self._parse_statistics(statistics, result)
+                except aiohttp.ClientResponseError as err:
+                    _LOGGER.debug(
+                        "nokia_fastmile: optional statistics endpoint unavailable (HTTP %s)",
+                        err.status,
+                    )
+                except ValueError as err:
+                    _LOGGER.debug(
+                        "nokia_fastmile: optional statistics endpoint returned invalid JSON: %s",
+                        err,
+                    )
 
             result[DATA_LAST_UPDATE] = datetime.now().isoformat(timespec="seconds")
             result[DATA_ERROR] = None
@@ -406,6 +445,9 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             out[DATA_5G_SINR] = _int_or_none(stat.get("SNRCurrent"))
             out[DATA_5G_SIGNAL_LEVEL] = _int_or_none(stat.get("SignalStrengthLevel"))
             out[DATA_5G_RSRP_STRENGTH_INDEX] = _int_or_none(stat.get("RSRPStrengthIndexCurrent"))
+            out[DATA_5G_PHYSICAL_CELL_ID] = _str_or_none(stat.get("PhysicalCellID"))
+            out[DATA_5G_DOWNLINK_ARFCN] = _int_or_none(stat.get("Downlink_NR_ARFCN"))
+            out[DATA_5G_BAND] = _str_or_none(stat.get("Band"))
 
         # LTE: cell_LTE_stats_cfg[0].stat
         stats_lte = raw.get("cell_LTE_stats_cfg") or []
@@ -417,8 +459,18 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             out[DATA_LTE_SINR] = _int_or_none(stat.get("SNRCurrent"))
             out[DATA_LTE_SIGNAL_LEVEL] = _int_or_none(stat.get("SignalStrengthLevel"))
             out[DATA_LTE_RSRP_STRENGTH_INDEX] = _int_or_none(stat.get("RSRPStrengthIndexCurrent"))
+            out[DATA_LTE_PHYSICAL_CELL_ID] = _str_or_none(stat.get("PhysicalCellID"))
+            out[DATA_LTE_DOWNLINK_EARFCN] = _int_or_none(stat.get("DownlinkEarfcn"))
+            out[DATA_LTE_BAND] = _str_or_none(stat.get("Band"))
 
     def _parse_status(self, raw: dict[str, Any], out: dict[str, Any]) -> None:
+        apn_list = raw.get("apn_cfg") or []
+        if apn_list:
+            apn = apn_list[0]
+            out[DATA_APN] = _str_or_none(apn.get("APN"))
+            out[DATA_CELLULAR_CONNECTION_STATE] = _str_or_none(apn.get("X_ALU_COM_ConnectionState"))
+            out[DATA_CELLULAR_IPV4] = _str_or_none(apn.get("X_ALU_COM_IPAddressV4"))
+
         # cellular_stats[0]
         cellular_list = raw.get("cellular_stats") or []
         if cellular_list:
@@ -430,11 +482,46 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ethernet_list = raw.get("ethernet_stats") or []
         if ethernet_list:
             ethernet = ethernet_list[0]
+            out[DATA_ETHERNET_STATUS] = _str_or_none(ethernet.get("Status"))
             stat = ethernet.get("stat") or {}
             out[DATA_ETHERNET_BYTES_RECEIVED] = _int_or_none(stat.get("BytesReceived"))
             out[DATA_ETHERNET_BYTES_SENT] = _int_or_none(stat.get("BytesSent"))
             out[DATA_ETHERNET_PACKETS_RECEIVED] = _int_or_none(stat.get("PacketsReceived"))
             out[DATA_ETHERNET_PACKETS_SENT] = _int_or_none(stat.get("PacketsSent"))
+
+    def _parse_statistics(self, raw: dict[str, Any], out: dict[str, Any]) -> None:
+        lan_list = raw.get("LAN") or []
+        if lan_list:
+            lan = lan_list[0]
+            out[DATA_ETHERNET_BYTES_RECEIVED] = _int_or_none(lan.get("BytesReceived"))
+            out[DATA_ETHERNET_BYTES_SENT] = _int_or_none(lan.get("BytesSent"))
+            out[DATA_ETHERNET_PACKETS_RECEIVED] = _int_or_none(lan.get("PacketsReceived"))
+            out[DATA_ETHERNET_PACKETS_SENT] = _int_or_none(lan.get("PacketsSent"))
+
+        for wan_key in ("WAN", "ethWAN"):
+            wan_list = raw.get(wan_key) or []
+            if not wan_list:
+                continue
+            services = wan_list[0].get("Service") or []
+            if not services:
+                continue
+            service = services[0]
+            out[DATA_CELLULAR_BYTES_RECEIVED] = _int_or_none(service.get("EthernetBytesReceived"))
+            out[DATA_CELLULAR_BYTES_SENT] = _int_or_none(service.get("EthernetBytesSent"))
+            break
+
+    def _missing_transfer_data(self, data: dict[str, Any]) -> bool:
+        return any(
+            data.get(key) is None
+            for key in (
+                DATA_CELLULAR_BYTES_RECEIVED,
+                DATA_CELLULAR_BYTES_SENT,
+                DATA_ETHERNET_BYTES_RECEIVED,
+                DATA_ETHERNET_BYTES_SENT,
+                DATA_ETHERNET_PACKETS_RECEIVED,
+                DATA_ETHERNET_PACKETS_SENT,
+            )
+        )
 
     def _parse_device_info(self, raw: dict[str, Any], out: dict[str, Any]) -> None:
         # device_app_status[0]

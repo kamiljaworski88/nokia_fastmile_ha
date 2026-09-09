@@ -18,6 +18,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     CONF_HOST,
+    DATA_5G_BAND,
+    DATA_5G_DOWNLINK_ARFCN,
+    DATA_5G_PHYSICAL_CELL_ID,
     DATA_5G_RSRP,
     DATA_5G_RSRP_STRENGTH_INDEX,
     DATA_5G_RSRQ,
@@ -25,12 +28,19 @@ from .const import (
     DATA_5G_SINR,
     DATA_CELLULAR_BYTES_RECEIVED,
     DATA_CELLULAR_BYTES_SENT,
+    DATA_CELLULAR_CONNECTION_STATE,
+    DATA_CELLULAR_IPV4,
     DATA_CONNECTION_STATE,
     DATA_CONNECTED_DEVICES,
     DATA_ETHERNET_BYTES_RECEIVED,
     DATA_ETHERNET_BYTES_SENT,
     DATA_ETHERNET_PACKETS_RECEIVED,
     DATA_ETHERNET_PACKETS_SENT,
+    DATA_ETHERNET_STATUS,
+    DATA_APN,
+    DATA_LTE_BAND,
+    DATA_LTE_DOWNLINK_EARFCN,
+    DATA_LTE_PHYSICAL_CELL_ID,
     DATA_LTE_RSRP,
     DATA_LTE_RSRP_STRENGTH_INDEX,
     DATA_LTE_RSRQ,
@@ -95,6 +105,25 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:signal-5g",
     ),
+    NokiaSensorDescription(
+        key="5g_physical_cell_id",
+        data_key=DATA_5G_PHYSICAL_CELL_ID,
+        name="5G Physical Cell ID",
+        icon="mdi:radio-tower",
+    ),
+    NokiaSensorDescription(
+        key="5g_downlink_arfcn",
+        data_key=DATA_5G_DOWNLINK_ARFCN,
+        name="5G Downlink ARFCN",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:access-point-network",
+    ),
+    NokiaSensorDescription(
+        key="5g_band",
+        data_key=DATA_5G_BAND,
+        name="5G Band",
+        icon="mdi:signal-5g",
+    ),
     # ── LTE signal ────────────────────────────────────────────────────────────
     NokiaSensorDescription(
         key="lte_rsrp",
@@ -144,6 +173,25 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:signal",
     ),
+    NokiaSensorDescription(
+        key="lte_physical_cell_id",
+        data_key=DATA_LTE_PHYSICAL_CELL_ID,
+        name="LTE Physical Cell ID",
+        icon="mdi:radio-tower",
+    ),
+    NokiaSensorDescription(
+        key="lte_downlink_earfcn",
+        data_key=DATA_LTE_DOWNLINK_EARFCN,
+        name="LTE Downlink EARFCN",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:access-point-network",
+    ),
+    NokiaSensorDescription(
+        key="lte_band",
+        data_key=DATA_LTE_BAND,
+        name="LTE Band",
+        icon="mdi:signal",
+    ),
     # ── Connection / WAN ──────────────────────────────────────────────────────
     NokiaSensorDescription(
         key="connection_state",
@@ -162,6 +210,31 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         data_key=DATA_WAN_ACTIVE,
         name="Aktywny WAN",
         icon="mdi:antenna",
+    ),
+    NokiaSensorDescription(
+        key="apn",
+        data_key=DATA_APN,
+        name="APN",
+        icon="mdi:sim",
+    ),
+    NokiaSensorDescription(
+        key="cellular_connection_state",
+        data_key=DATA_CELLULAR_CONNECTION_STATE,
+        name="Cellular Connection State",
+        icon="mdi:connection",
+    ),
+    NokiaSensorDescription(
+        key="cellular_ipv4",
+        data_key=DATA_CELLULAR_IPV4,
+        name="Cellular IPv4",
+        icon="mdi:ip-network",
+        entity_registry_enabled_default=False,
+    ),
+    NokiaSensorDescription(
+        key="ethernet_status",
+        data_key=DATA_ETHERNET_STATUS,
+        name="Ethernet Status",
+        icon="mdi:ethernet",
     ),
     # ── Transfer data ───────────────────────────────────────────────────────
     NokiaSensorDescription(

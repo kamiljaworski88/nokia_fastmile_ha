@@ -280,6 +280,9 @@ class NokiaFastMileCard extends HTMLElement {
       '5g_sinr': this._hass.states[`${entityId}_5g_sinr`],
       '5g_signal_level': this._hass.states[`${entityId}_5g_signal_level`],
       '5g_rsrp_strength_index': this._hass.states[`${entityId}_5g_rsrp_strength_index`],
+      '5g_band': this._hass.states[`${entityId}_5g_band`],
+      '5g_downlink_arfcn': this._hass.states[`${entityId}_5g_downlink_arfcn`],
+      '5g_physical_cell_id': this._hass.states[`${entityId}_5g_physical_cell_id`],
 
       // LTE signals
       'lte_rsrp': this._hass.states[`${entityId}_lte_rsrp`],
@@ -288,6 +291,14 @@ class NokiaFastMileCard extends HTMLElement {
       'lte_sinr': this._hass.states[`${entityId}_lte_sinr`],
       'lte_signal_level': this._hass.states[`${entityId}_lte_signal_level`],
       'lte_rsrp_strength_index': this._hass.states[`${entityId}_lte_rsrp_strength_index`],
+      'lte_band': this._hass.states[`${entityId}_lte_band`],
+      'lte_downlink_earfcn': this._hass.states[`${entityId}_lte_downlink_earfcn`],
+      'lte_physical_cell_id': this._hass.states[`${entityId}_lte_physical_cell_id`],
+
+      // Network details
+      apn: this._hass.states[`${entityId}_apn`],
+      cellular_connection_state: this._hass.states[`${entityId}_cellular_connection_state`],
+      ethernet_status: this._hass.states[`${entityId}_ethernet_status`],
 
       // Transfer data
       cellular_bytes_received: this._hass.states[`${entityId}_cellular_bytes_received`],
@@ -319,9 +330,13 @@ class NokiaFastMileCard extends HTMLElement {
           ${this._renderSignalCard('5g_rsrp', '5G RSRP', 'dBm')}
           ${this._renderSignalCard('5g_rsrq', '5G RSRQ', 'dB')}
           ${this._renderSignalCard('5g_sinr', '5G SINR', 'dB')}
+          ${this._renderSignalCard('5g_band', '5G Band', '')}
+          ${this._renderSignalCard('5g_downlink_arfcn', '5G ARFCN', '')}
           ${this._renderSignalCard('lte_rsrp', 'LTE RSRP', 'dBm')}
           ${this._renderSignalCard('lte_rsrq', 'LTE RSRQ', 'dB')}
           ${this._renderSignalCard('lte_rssi', 'LTE RSSI', 'dBm')}
+          ${this._renderSignalCard('lte_band', 'LTE Band', '')}
+          ${this._renderSignalCard('lte_downlink_earfcn', 'LTE EARFCN', '')}
         </div>
 
         <div class="transfer-section">
@@ -339,6 +354,9 @@ class NokiaFastMileCard extends HTMLElement {
           ${this._renderInfoItem('connected_devices', 'Urządzenia')}
           ${this._renderInfoItem('unread_sms', 'SMS')}
           ${this._renderInfoItem('sw_version', 'Wersja')}
+          ${this._renderInfoItem('apn', 'APN')}
+          ${this._renderInfoItem('cellular_connection_state', 'Cellular')}
+          ${this._renderInfoItem('ethernet_status', 'Ethernet')}
         </div>
 
         <div class="charts-section">
@@ -712,6 +730,7 @@ class NokiaFastMileCard extends HTMLElement {
     this.shadowRoot.querySelector(`[data-range="${range}"]`)?.classList.add('active');
     this._loadHistoryData();
   }
+}
 
 customElements.define('nokia-fastmile-card', NokiaFastMileCard);
 

@@ -51,6 +51,16 @@ function esc(s) {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+function fmtBytes(bytes) {
+  if (bytes === null || bytes === undefined) return "—";
+  const n = Number(bytes);
+  if (!Number.isFinite(n)) return "—";
+  if (n === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
+  return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+}
+
 // ── Styles (same design tokens as home-pulse-card) ────────────────────────────
 const STYLES = `
   :host { display: block; }
@@ -126,6 +136,24 @@ const STYLES = `
   .chart-current { font-size: 0.72rem; font-weight: 700; }
   svg.sparkline { display: block; width: 100%; height: 56px; }
 
+  /* Transfer */
+  .transfer {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px; margin-bottom: 12px;
+  }
+  .traffic {
+    border: 1px solid var(--divider-color); border-radius: 10px;
+    padding: 8px 10px; background: var(--card-background-color);
+  }
+  .traffic-label {
+    font-size: 0.7rem; color: var(--secondary-text-color);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .traffic-value {
+    margin-top: 3px; font-size: 0.9rem; font-weight: 700;
+    color: var(--primary-text-color); font-variant-numeric: tabular-nums;
+  }
+
   /* Footer */
   .footer {
     display: flex; gap: 6px; flex-wrap: wrap;
@@ -147,6 +175,11 @@ const STYLES = `
   }
   .unavail ha-icon { --mdc-icon-size: 38px; display: block; margin: 0 auto 8px;
                      color: var(--primary-color); opacity: .4; }
+
+  @media (max-width: 520px) {
+    .panels { grid-template-columns: 1fr; }
+    .transfer { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
 `;
 
 // ── Card ──────────────────────────────────────────────────────────────────────
@@ -310,6 +343,14 @@ class NokiaFastMileCard extends HTMLElement {
       </div>`;
   }
 
+  _trafficHtml(label, state) {
+    return `
+      <div class="traffic">
+        <div class="traffic-label">${esc(label)}</div>
+        <div class="traffic-value">${esc(fmtBytes(val(state)))}</div>
+      </div>`;
+  }
+
   _chartHtml(state, label, color, gradId) {
     const eid    = state?.entity_id;
     const points = this._history[eid] ?? [];
@@ -354,12 +395,21 @@ class NokiaFastMileCard extends HTMLElement {
     const e5gRsrq  = this._find("5g rsrq");
     const e5gSinr  = this._find("5g sinr");
     const e5gLvl   = this._find("5g poziom");
+    const e5gBand  = this._find("5g band");
+    const e5gArfcn = this._find("5g downlink arfcn");
 
     const eLteRsrp = this._find("lte rsrp");
     const eLteRsrq = this._find("lte rsrq");
     const eLteRssi = this._find("lte rssi");
     const eLteSinr = this._find("lte sinr");
     const eLteLvl  = this._find("lte poziom");
+    const eLteBand = this._find("lte band");
+    const eLteArfcn = this._find("lte downlink earfcn");
+
+    const eCellRx = this._find("cellular bytes received");
+    const eCellTx = this._find("cellular bytes sent");
+    const eEthRx = this._find("ethernet bytes received");
+    const eEthTx = this._find("ethernet bytes sent");
 
     const eUptime  = this._find("uptime");
     const eDevices = this._find("podłączone urządzenia");
@@ -393,6 +443,8 @@ class NokiaFastMileCard extends HTMLElement {
     const rsrq5g = val(e5gRsrq);
     const sinr5g = val(e5gSinr);
     const lvl5g  = val(e5gLvl);
+    const band5g = val(e5gBand);
+    const arfcn5g = val(e5gArfcn);
     const clr5g  = levelColor(lvl5g);
 
     // LTE values
@@ -401,6 +453,8 @@ class NokiaFastMileCard extends HTMLElement {
     const rssiLte = val(eLteRssi);
     const sinrLte = val(eLteSinr);
     const lvlLte  = val(eLteLvl);
+    const bandLte = val(eLteBand);
+    const arfcnLte = val(eLteArfcn);
     const clrLte  = levelColor(lvlLte);
 
     // Footer
@@ -439,6 +493,8 @@ class NokiaFastMileCard extends HTMLElement {
           ${this._metricHtml("RSRP", rsrp5g, "dBm", qColor(rsrp5g, Q.rsrp))}
           ${this._metricHtml("RSRQ", rsrq5g, "dB",  qColor(rsrq5g, Q.rsrq))}
           ${this._metricHtml("SINR", sinr5g, "dB",  qColor(sinr5g, Q.sinr))}
+          ${this._metricHtml("Band", band5g, "", "var(--primary-text-color)")}
+          ${this._metricHtml("ARFCN", arfcn5g, "", "var(--primary-text-color)")}
         </div>
         <!-- LTE -->
         <div class="panel">
@@ -448,7 +504,17 @@ class NokiaFastMileCard extends HTMLElement {
           ${this._metricHtml("RSRQ", rsrqLte, "dB",  qColor(rsrqLte, Q.rsrq))}
           ${this._metricHtml("RSSI", rssiLte, "dBm", qColor(rssiLte, Q.rsrp))}
           ${this._metricHtml("SINR", sinrLte, "dB",  qColor(sinrLte, Q.sinr))}
+          ${this._metricHtml("Band", bandLte, "", "var(--primary-text-color)")}
+          ${this._metricHtml("EARFCN", arfcnLte, "", "var(--primary-text-color)")}
         </div>
+      </div>
+
+      <!-- Transfer -->
+      <div class="transfer">
+        ${this._trafficHtml("Cellular RX", eCellRx)}
+        ${this._trafficHtml("Cellular TX", eCellTx)}
+        ${this._trafficHtml("Ethernet RX", eEthRx)}
+        ${this._trafficHtml("Ethernet TX", eEthTx)}
       </div>
 
       <!-- Sparkline charts -->
