@@ -63,6 +63,8 @@ def _build_login_payload(
     username: str,
     password: str,
     nonce_data: dict[str, Any],
+    *,
+    dotted_nonce: bool = True,
 ) -> dict[str, str]:
     nonce_b64: str = nonce_data["nonce"]
     random_key: str = str(nonce_data.get("randomKey", ""))
@@ -79,7 +81,7 @@ def _build_login_payload(
         "response": _nokia_b64encode(
             hashlib.pbkdf2_hmac("sha256", password.encode(), nonce_bytes, iterations)
         ),
-        "nonce": nonce_b64.replace("=", "."),
+        "nonce": nonce_b64.replace("=", ".") if dotted_nonce else nonce_b64,
         "enckey": _nokia_b64encode(os.urandom(16)),
         "enciv": _nokia_b64encode(os.urandom(16)),
     }
@@ -112,7 +114,12 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
             cookie_jar=aiohttp.CookieJar(unsafe=True),
             timeout=aiohttp.ClientTimeout(connect=8, sock_read=12),
         ) as session:
-            for mode in ("json", "form"):
+            for mode, dotted_nonce in (
+                ("json", True),
+                ("json", False),
+                ("form", True),
+                ("form", False),
+            ):
                 session.cookie_jar.clear()
                 async with session.get(base_url + PATH_LOGIN_NONCE) as r:
                     if r.status >= 400:
@@ -125,7 +132,12 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                         _LOGGER.error("nokia_fastmile config: Failed to get salt HTTP %s", r.status)
                         return "cannot_connect"
 
-                payload = _build_login_payload(username, password, nonce_data)
+                payload = _build_login_payload(
+                    username,
+                    password,
+                    nonce_data,
+                    dotted_nonce=dotted_nonce,
+                )
                 if mode == "json":
                     post_kwargs = {
                         "json": payload,
@@ -144,14 +156,19 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                     body = await r.text()
                     cookie_names = [c.key for c in session.cookie_jar] if session.cookie_jar else []
                     _LOGGER.debug(
-                        "nokia_fastmile config: login attempt mode=%s status=%s cookies=%s body=%.120s",
+                        "nokia_fastmile config: login attempt mode=%s nonce=%s status=%s cookies=%s body=%.120s",
                         mode,
+                        "dotted" if dotted_nonce else "raw",
                         r.status,
                         cookie_names,
                         body,
                     )
                     if r.status in LOGIN_SUCCESS_STATUS and _has_session_cookie(session):
-                        _LOGGER.info("nokia_fastmile config: Login successful with %s payload", mode)
+                        _LOGGER.info(
+                            "nokia_fastmile config: Login successful with %s payload, %s nonce",
+                            mode,
+                            "dotted" if dotted_nonce else "raw",
+                        )
                         return None
 
             return "cannot_connect"

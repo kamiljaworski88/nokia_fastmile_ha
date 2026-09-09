@@ -226,6 +226,8 @@ def _build_login_payload(
     username: str,
     password: str,
     nonce_data: dict[str, Any],
+    *,
+    dotted_nonce: bool = True,
 ) -> dict[str, str]:
     nonce_b64: str = nonce_data["nonce"]
     random_key: str = str(nonce_data.get("randomKey", ""))
@@ -242,7 +244,7 @@ def _build_login_payload(
         "response": _nokia_b64encode(
             hashlib.pbkdf2_hmac("sha256", password.encode(), nonce_bytes, iterations)
         ),
-        "nonce": nonce_b64.replace("=", "."),
+        "nonce": nonce_b64.replace("=", ".") if dotted_nonce else nonce_b64,
         "enckey": _nokia_b64encode(os.urandom(16)),
         "enciv": _nokia_b64encode(os.urandom(16)),
     }
@@ -382,7 +384,12 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         last_history = ()
         last_status = 0
 
-        for mode in ("json", "form"):
+        for mode, dotted_nonce in (
+            ("json", True),
+            ("json", False),
+            ("form", True),
+            ("form", False),
+        ):
             self._session.cookie_jar.clear()
             async with self._session.get(base + PATH_LOGIN_NONCE) as r:
                 r.raise_for_status()
@@ -393,7 +400,12 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 r.raise_for_status()
                 _LOGGER.debug("nokia_fastmile: salt fetch completed status=%s", r.status)
 
-            payload = _build_login_payload(username, password, nonce_data)
+            payload = _build_login_payload(
+                username,
+                password,
+                nonce_data,
+                dotted_nonce=dotted_nonce,
+            )
             if mode == "json":
                 post_kwargs = {
                     "json": payload,
@@ -415,8 +427,9 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 body = await r.text()
                 cookie_names = [c.key for c in self._session.cookie_jar] if self._session.cookie_jar else []
                 _LOGGER.debug(
-                    "nokia_fastmile: login attempt mode=%s status=%s cookies=%s body=%.120s",
+                    "nokia_fastmile: login attempt mode=%s nonce=%s status=%s cookies=%s body=%.120s",
                     mode,
+                    "dotted" if dotted_nonce else "raw",
                     r.status,
                     cookie_names,
                     body,
@@ -424,8 +437,9 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if r.status in LOGIN_SUCCESS_STATUS and _has_session_cookie(self._session):
                     self._authenticated = True
                     _LOGGER.info(
-                        "nokia_fastmile: login successful with %s payload (HTTP %s)",
+                        "nokia_fastmile: login successful with %s payload, %s nonce (HTTP %s)",
                         mode,
+                        "dotted" if dotted_nonce else "raw",
                         r.status,
                     )
                     return
