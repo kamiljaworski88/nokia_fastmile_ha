@@ -312,7 +312,13 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             connector=connector,
             cookie_jar=cookie_jar,
             timeout=aiohttp.ClientTimeout(connect=10, sock_read=15),
-            headers={"User-Agent": "Mozilla/5.0 (HomeAssistant)"},
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/152.0.0.0 Safari/537.36"
+                ),
+            },
         )
         _LOGGER.debug("nokia_fastmile: session created with CookieJar enabled for IP hosts")
 
@@ -428,12 +434,18 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ("form", False),
         ):
             self._session.cookie_jar.clear()
-            async with self._session.get(base + PATH_LOGIN_NONCE) as r:
+            async with self._session.get(
+                base + PATH_LOGIN_NONCE,
+                headers=self._request_headers(),
+            ) as r:
                 r.raise_for_status()
                 nonce_data = await r.json(content_type=None)
             _LOGGER.debug("nokia_fastmile: nonce_data=%s", nonce_data)
 
-            async with self._session.get(base + PATH_LOGIN_SALT) as r:
+            async with self._session.get(
+                base + PATH_LOGIN_SALT,
+                headers=self._request_headers(),
+            ) as r:
                 r.raise_for_status()
                 _LOGGER.debug("nokia_fastmile: salt fetch completed status=%s", r.status)
 
@@ -446,15 +458,12 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if mode == "json":
                 post_kwargs = {
                     "json": payload,
-                    "headers": {"Accept": "application/json, text/plain, */*"},
+                    "headers": self._request_headers(content_type=None),
                 }
             else:
                 post_kwargs = {
                     "data": payload,
-                    "headers": {
-                        "Accept": "application/json, text/plain, */*",
-                        "Content-Type": "application/x-www-form-urlencoded",
-                    },
+                    "headers": self._request_headers(),
                 }
 
             async with self._session.post(base + PATH_LOGIN, **post_kwargs) as r:
@@ -626,11 +635,14 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             _LOGGER.debug("nokia_fastmile: session check skipped: %s", err)
 
-    def _request_headers(self) -> dict[str, str]:
+    def _request_headers(self, *, content_type: str | None = "application/x-www-form-urlencoded") -> dict[str, str]:
         headers = {
             "Accept": "application/json, text/plain, */*",
-            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Referer": f"{self._base_url()}/web_whw/",
         }
+        if content_type is not None:
+            headers["Content-Type"] = content_type
         if self._sid:
             headers["Cookie"] = f"sid={self._sid}"
         return headers

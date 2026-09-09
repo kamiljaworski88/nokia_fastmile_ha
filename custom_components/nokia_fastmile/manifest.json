@@ -1,7 +1,7 @@
 {
   "domain": "nokia_fastmile",
   "name": "Nokia FastMile 5G",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "documentation": "",
   "requirements": ["aiohttp>=3.8"],
   "dependencies": [],

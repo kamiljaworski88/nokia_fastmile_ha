@@ -79,6 +79,21 @@ def _redact_login_body(body: str) -> str:
     return json.dumps(data, separators=(",", ":"))
 
 
+def _request_headers(
+    base_url: str,
+    *,
+    content_type: str | None = "application/x-www-form-urlencoded",
+) -> dict[str, str]:
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": f"{base_url}/web_whw/",
+    }
+    if content_type is not None:
+        headers["Content-Type"] = content_type
+    return headers
+
+
 def _build_login_payload(
     username: str,
     password: str,
@@ -133,6 +148,13 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
             connector=connector,
             cookie_jar=aiohttp.CookieJar(unsafe=True),
             timeout=aiohttp.ClientTimeout(connect=8, sock_read=12),
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/152.0.0.0 Safari/537.36"
+                ),
+            },
         ) as session:
             for mode, dotted_nonce in (
                 ("json", True),
@@ -141,13 +163,19 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                 ("form", False),
             ):
                 session.cookie_jar.clear()
-                async with session.get(base_url + PATH_LOGIN_NONCE) as r:
+                async with session.get(
+                    base_url + PATH_LOGIN_NONCE,
+                    headers=_request_headers(base_url),
+                ) as r:
                     if r.status >= 400:
                         _LOGGER.error("nokia_fastmile config: Failed to get nonce HTTP %s", r.status)
                         return "cannot_connect"
                     nonce_data = await r.json(content_type=None)
 
-                async with session.get(base_url + PATH_LOGIN_SALT) as r:
+                async with session.get(
+                    base_url + PATH_LOGIN_SALT,
+                    headers=_request_headers(base_url),
+                ) as r:
                     if r.status >= 400:
                         _LOGGER.error("nokia_fastmile config: Failed to get salt HTTP %s", r.status)
                         return "cannot_connect"
@@ -161,15 +189,12 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                 if mode == "json":
                     post_kwargs = {
                         "json": payload,
-                        "headers": {"Accept": "application/json, text/plain, */*"},
+                        "headers": _request_headers(base_url, content_type=None),
                     }
                 else:
                     post_kwargs = {
                         "data": payload,
-                        "headers": {
-                            "Accept": "application/json, text/plain, */*",
-                            "Content-Type": "application/x-www-form-urlencoded",
-                        },
+                        "headers": _request_headers(base_url),
                     }
 
                 async with session.post(base_url + PATH_LOGIN, **post_kwargs) as r:
