@@ -180,7 +180,7 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                     if r.status >= 400:
                         _LOGGER.error("nokia_fastmile config: Failed to get nonce HTTP %s", r.status)
                         return "cannot_connect"
-                    nonce_data = await r.json(content_type=None)
+                    nonce_data = await r.json(content_type=None) or {}
 
                 async with session.get(
                     (
@@ -194,7 +194,7 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                     if r.status >= 400:
                         _LOGGER.error("nokia_fastmile config: Failed to get salt HTTP %s", r.status)
                         return "cannot_connect"
-                    salt_data = await r.json(content_type=None)
+                    salt_data = await r.json(content_type=None) or {}
 
                 payload = _build_login_payload(
                     username,

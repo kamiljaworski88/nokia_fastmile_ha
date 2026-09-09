@@ -449,7 +449,7 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 headers=self._request_headers(),
             ) as r:
                 r.raise_for_status()
-                nonce_data = await r.json(content_type=None)
+                nonce_data = await r.json(content_type=None) or {}
             _LOGGER.debug("nokia_fastmile: nonce_data=%s", nonce_data)
 
             async with self._session.get(
@@ -462,7 +462,7 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 headers=self._request_headers(),
             ) as r:
                 r.raise_for_status()
-                salt_data = await r.json(content_type=None)
+                salt_data = await r.json(content_type=None) or {}
                 _LOGGER.debug("nokia_fastmile: salt fetch completed status=%s", r.status)
 
             payload = _build_login_payload(
