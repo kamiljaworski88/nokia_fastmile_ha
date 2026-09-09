@@ -54,7 +54,7 @@ def _sha256_hex(text: str) -> str:
 
 
 def _sha256_url(value: str, nonce: str) -> str:
-    return _nokia_b64encode(hashlib.sha256((value + nonce).encode()).digest())
+    return _nokia_b64encode(hashlib.sha256(f"{value}:{nonce}".encode()).digest())
 
 
 def _has_session_cookie(session: aiohttp.ClientSession) -> bool:
@@ -107,14 +107,12 @@ def _build_login_payload(
     password: str,
     nonce_data: dict[str, Any],
     alati: str,
-    *,
-    dotted_nonce: bool = True,
 ) -> dict[str, str]:
     nonce_b64: str = nonce_data["nonce"]
     random_key: str = str(nonce_data.get("randomKey", ""))
     iterations: int = int(nonce_data.get("iterations", 1))
     nonce_bytes = _std_b64decode(nonce_b64)
-    escaped_nonce = _nokia_b64encode(nonce_bytes) if dotted_nonce else nonce_b64
+    escaped_nonce = _nokia_b64encode(nonce_bytes)
     password_hash = _sha256_hex(alati + password) if iterations >= 1 else alati + password
 
     for _ in range(1, iterations):
@@ -166,12 +164,7 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                 ),
             },
         ) as session:
-            for mode, dotted_nonce in (
-                ("json", True),
-                ("json", False),
-                ("form", True),
-                ("form", False),
-            ):
+            for mode, dotted_nonce in (("form", True),):
                 session.cookie_jar.clear()
                 async with session.get(
                     base_url + PATH_LOGIN_NONCE,
@@ -201,7 +194,6 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                     password,
                     nonce_data,
                     str(salt_data.get("alati", "")),
-                    dotted_nonce=dotted_nonce,
                 )
                 if mode == "json":
                     post_kwargs = {
