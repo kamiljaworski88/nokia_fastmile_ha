@@ -87,6 +87,17 @@ def _redact_login_body(body: str) -> str:
     return json.dumps(data, separators=(",", ":"))
 
 
+def _safe_login_payload(payload: dict[str, str]) -> dict[str, Any]:
+    return {
+        "userhash": payload.get("userhash"),
+        "RandomKeyhash": payload.get("RandomKeyhash"),
+        "nonce": payload.get("nonce"),
+        "response_len": len(payload.get("response", "")),
+        "enckey_len": len(payload.get("enckey", "")),
+        "enciv_len": len(payload.get("enciv", "")),
+    }
+
+
 def _request_headers(
     base_url: str,
     *,
@@ -175,12 +186,23 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                         return "cannot_connect"
                     nonce_data = await r.json(content_type=None) or {}
 
+                salt_userhash = _sha256_url(username, nonce_data["nonce"])
+                salt_nonce = _nokia_b64encode(_std_b64decode(nonce_data["nonce"]))
+                _LOGGER.debug(
+                    "nokia_fastmile config: salt request userhash=%s nonce=%s username=%s randomKey=%s iterations=%s",
+                    salt_userhash,
+                    salt_nonce,
+                    username,
+                    nonce_data.get("randomKey"),
+                    nonce_data.get("iterations"),
+                )
+
                 async with session.get(
                     (
                         base_url
                         + PATH_LOGIN_SALT
-                        + f"&userhash={_sha256_url(username, nonce_data['nonce'])}"
-                        + f"&nonce={_nokia_b64encode(_std_b64decode(nonce_data['nonce']))}"
+                        + f"&userhash={salt_userhash}"
+                        + f"&nonce={salt_nonce}"
                     ),
                     headers=_request_headers(base_url),
                 ) as r:
@@ -188,6 +210,12 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                         _LOGGER.error("nokia_fastmile config: Failed to get salt HTTP %s", r.status)
                         return "cannot_connect"
                     salt_data = await r.json(content_type=None) or {}
+                    _LOGGER.debug(
+                        "nokia_fastmile config: salt fetch completed status=%s keys=%s alati_len=%s",
+                        r.status,
+                        list(salt_data),
+                        len(str(salt_data.get("alati", ""))),
+                    )
 
                 payload = _build_login_payload(
                     username,
@@ -195,6 +223,8 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                     nonce_data,
                     str(salt_data.get("alati", "")),
                 )
+                safe_payload = _safe_login_payload(payload)
+                _LOGGER.debug("nokia_fastmile config: login payload safe=%s", safe_payload)
                 if mode == "json":
                     post_kwargs = {
                         "json": payload,
@@ -226,6 +256,12 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                             "dotted" if dotted_nonce else "raw",
                         )
                         return None
+                    _LOGGER.warning(
+                        "nokia_fastmile config: login rejected status=%s body=%s payload_safe=%s",
+                        r.status,
+                        _redact_login_body(body),
+                        safe_payload,
+                    )
 
             return "cannot_connect"
             # Step 1 — nonce + crypto params

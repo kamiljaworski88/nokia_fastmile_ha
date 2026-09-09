@@ -263,6 +263,17 @@ def _redact_login_body(body: str) -> str:
     return json.dumps(data, separators=(",", ":"))
 
 
+def _safe_login_payload(payload: dict[str, str]) -> dict[str, Any]:
+    return {
+        "userhash": payload.get("userhash"),
+        "RandomKeyhash": payload.get("RandomKeyhash"),
+        "nonce": payload.get("nonce"),
+        "response_len": len(payload.get("response", "")),
+        "enckey_len": len(payload.get("enckey", "")),
+        "enciv_len": len(payload.get("enciv", "")),
+    }
+
+
 def _build_login_payload(
     username: str,
     password: str,
@@ -445,18 +456,34 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 nonce_data = await r.json(content_type=None) or {}
             _LOGGER.debug("nokia_fastmile: nonce_data=%s", nonce_data)
 
+            salt_userhash = _sha256_url(username, nonce_data["nonce"])
+            salt_nonce = _nokia_b64encode(_std_b64decode(nonce_data["nonce"]))
+            _LOGGER.debug(
+                "nokia_fastmile: salt request userhash=%s nonce=%s username=%s randomKey=%s iterations=%s",
+                salt_userhash,
+                salt_nonce,
+                username,
+                nonce_data.get("randomKey"),
+                nonce_data.get("iterations"),
+            )
+
             async with self._session.get(
                 (
                     base
                     + PATH_LOGIN_SALT
-                    + f"&userhash={_sha256_url(username, nonce_data['nonce'])}"
-                    + f"&nonce={_nokia_b64encode(_std_b64decode(nonce_data['nonce']))}"
+                    + f"&userhash={salt_userhash}"
+                    + f"&nonce={salt_nonce}"
                 ),
                 headers=self._request_headers(),
             ) as r:
                 r.raise_for_status()
                 salt_data = await r.json(content_type=None) or {}
-                _LOGGER.debug("nokia_fastmile: salt fetch completed status=%s", r.status)
+                _LOGGER.debug(
+                    "nokia_fastmile: salt fetch completed status=%s keys=%s alati_len=%s",
+                    r.status,
+                    list(salt_data),
+                    len(str(salt_data.get("alati", ""))),
+                )
 
             payload = _build_login_payload(
                 username,
@@ -464,6 +491,8 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 nonce_data,
                 str(salt_data.get("alati", "")),
             )
+            safe_payload = _safe_login_payload(payload)
+            _LOGGER.debug("nokia_fastmile: login payload safe=%s", safe_payload)
             if mode == "json":
                 post_kwargs = {
                     "json": payload,
@@ -506,6 +535,12 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         r.status,
                     )
                     return
+                _LOGGER.warning(
+                    "nokia_fastmile: login rejected status=%s body=%s payload_safe=%s",
+                    r.status,
+                    _redact_login_body(body),
+                    safe_payload,
+                )
 
         raise aiohttp.ClientResponseError(
             last_request_info,
