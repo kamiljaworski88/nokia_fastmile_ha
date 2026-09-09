@@ -116,7 +116,7 @@ def _build_login_payload(
         "response": _nokia_b64encode(
             hashlib.pbkdf2_hmac("sha256", password.encode(), nonce_bytes, iterations)
         ),
-        "nonce": nonce_b64.replace("=", ".") if dotted_nonce else nonce_b64,
+        "nonce": _nokia_b64encode(nonce_bytes) if dotted_nonce else nonce_b64,
         "enckey": _nokia_b64encode(os.urandom(16)),
         "enciv": _nokia_b64encode(os.urandom(16)),
     }
