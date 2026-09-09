@@ -48,6 +48,12 @@ def _std_b64decode(s: str) -> bytes:
     return base64.b64decode(s)
 
 
+def _has_session_cookie(session: aiohttp.ClientSession) -> bool:
+    if session.cookie_jar is None:
+        return False
+    return any(cookie.key.lower() == "sid" for cookie in session.cookie_jar)
+
+
 STEP_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST, default=DEFAULT_HOST): str,
@@ -108,8 +114,15 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                 "enciv":  _nokia_b64encode(os.urandom(16)),
             }
 
-            async with session.post(base_url + PATH_LOGIN, json=payload) as r:
-                if r.status in LOGIN_SUCCESS_STATUS:
+            async with session.post(
+                base_url + PATH_LOGIN,
+                data=payload,
+                headers={
+                    "Accept": "application/json, text/plain, */*",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            ) as r:
+                if r.status in LOGIN_SUCCESS_STATUS and _has_session_cookie(session):
                     _LOGGER.info("nokia_fastmile config: Login successful")
                     return None  # success
                 if r.status == 401:

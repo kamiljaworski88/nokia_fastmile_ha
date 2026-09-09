@@ -211,6 +211,12 @@ def _json_or_raise(text: str, path: str) -> dict[str, Any]:
     return data or {}
 
 
+def _has_session_cookie(session: aiohttp.ClientSession) -> bool:
+    if session.cookie_jar is None:
+        return False
+    return any(cookie.key.lower() == "sid" for cookie in session.cookie_jar)
+
+
 # ── Coordinator ───────────────────────────────────────────────────────────────
 
 class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -378,16 +384,24 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "enciv":  _nokia_b64encode(os.urandom(16)),
         }
 
-        async with self._session.post(base + PATH_LOGIN, json=payload) as r:
+        async with self._session.post(
+            base + PATH_LOGIN,
+            data=payload,
+            headers={
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        ) as r:
             _LOGGER.debug("nokia_fastmile: login response status=%s headers=%s", 
                          r.status, dict(r.headers))
             
-            if r.status in LOGIN_SUCCESS_STATUS:
+            if r.status in LOGIN_SUCCESS_STATUS and _has_session_cookie(self._session):
                 # Debug: log cookies
                 if self._session.cookie_jar:
-                    cookies_list = list(self._session.cookie_jar)
-                    _LOGGER.debug("nokia_fastmile: cookies after login: %s", 
-                                  [(c.key, c.value[:20] if len(c.value) > 20 else c.value) for c in cookies_list])
+                    _LOGGER.debug(
+                        "nokia_fastmile: cookie names after login: %s",
+                        [c.key for c in self._session.cookie_jar],
+                    )
                 
                 self._authenticated = True
                 _LOGGER.info("nokia_fastmile: login successful (HTTP %s)", r.status)
