@@ -172,7 +172,6 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:download-network",
-        entity_registry_enabled_default=False,
     ),
     NokiaSensorDescription(
         key="cellular_bytes_sent",
@@ -182,7 +181,6 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:upload-network",
-        entity_registry_enabled_default=False,
     ),
     NokiaSensorDescription(
         key="ethernet_bytes_received",
@@ -192,7 +190,6 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:download-network",
-        entity_registry_enabled_default=False,
     ),
     NokiaSensorDescription(
         key="ethernet_bytes_sent",
@@ -202,7 +199,6 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:upload-network",
-        entity_registry_enabled_default=False,
     ),
     NokiaSensorDescription(
         key="ethernet_packets_received",
@@ -210,7 +206,6 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         name="Ethernet Packets Received",
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:package-down",
-        entity_registry_enabled_default=False,
     ),
     NokiaSensorDescription(
         key="ethernet_packets_sent",
@@ -218,7 +213,6 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         name="Ethernet Packets Sent",
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:package-up",
-        entity_registry_enabled_default=False,
     ),
     # ── Device info ───────────────────────────────────────────────────────────
     NokiaSensorDescription(

@@ -24,6 +24,7 @@ Authentication (3 steps):
 
 Data endpoints (plain GET, no body):
   /overview_get_web_app.cgi
+  /status_get_web_app.cgi
   /dashboard_device_info_status_web_app.cgi
 
 overview response (confirmed):
@@ -103,6 +104,7 @@ from .const import (
     PATH_LOGIN_NONCE,
     PATH_LOGIN_SALT,
     PATH_OVERVIEW,
+    PATH_STATUS,
     SCAN_INTERVAL,
 )
 
@@ -226,6 +228,21 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device_info = await self._get(PATH_DEVICE_INFO)
             _LOGGER.debug("nokia_fastmile: device_info data: %s", device_info)
             self._parse_device_info(device_info, result)
+
+            try:
+                status = await self._get(PATH_STATUS)
+                _LOGGER.debug("nokia_fastmile: status data: %s", status)
+                self._parse_status(status, result)
+            except aiohttp.ClientResponseError as err:
+                _LOGGER.debug(
+                    "nokia_fastmile: optional status endpoint unavailable (HTTP %s)",
+                    err.status,
+                )
+            except ValueError as err:
+                _LOGGER.debug(
+                    "nokia_fastmile: optional status endpoint returned invalid JSON: %s",
+                    err,
+                )
 
             result[DATA_LAST_UPDATE] = datetime.now().isoformat(timespec="seconds")
             result[DATA_ERROR] = None

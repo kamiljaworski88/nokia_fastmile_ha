@@ -87,13 +87,12 @@ Jeżeli konfiguracja nie działa:
 
 Sensory `Cellular Bytes Received`, `Cellular Bytes Sent`, `Ethernet Bytes Received`,
 `Ethernet Bytes Sent`, `Ethernet Packets Received` i `Ethernet Packets Sent`
-są oznaczone jako domyślnie wyłączone, ponieważ część wersji firmware nie udostępnia
-tych danych stabilnie przez endpoint:
+są pobierane z endpointu:
 
-- `/fastmile_radio_status_web_app.cgi`
+- `/status_get_web_app.cgi`
 
-Jeżeli włączysz je ręcznie i nadal mają stan `unknown`, router prawdopodobnie nie
-zwraca tych pól w tej wersji firmware.
+Jeżeli ten endpoint nie odpowie poprawnie, integracja pominie tylko statystyki
+transferu i nadal zaktualizuje podstawowe dane 5G/LTE oraz informacje o urządzeniu.
 
 ## Wersja
 
