@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import os
 from typing import Any
@@ -57,6 +58,25 @@ def _has_session_cookie(session: aiohttp.ClientSession) -> bool:
         and cookie.value.lower() != "deleted"
         for cookie in session.cookie_jar
     )
+
+
+def _login_body_has_session(body: str) -> bool:
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return False
+    return data.get("result") == 0 and bool(data.get("sid"))
+
+
+def _redact_login_body(body: str) -> str:
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return body[:120]
+    for key in ("sid", "token"):
+        if key in data:
+            data[key] = "<redacted>"
+    return json.dumps(data, separators=(",", ":"))
 
 
 def _build_login_payload(
@@ -161,9 +181,11 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
                         "dotted" if dotted_nonce else "raw",
                         r.status,
                         cookie_names,
-                        body,
+                        _redact_login_body(body),
                     )
-                    if r.status in LOGIN_SUCCESS_STATUS and _has_session_cookie(session):
+                    if r.status in LOGIN_SUCCESS_STATUS and (
+                        _login_body_has_session(body) or _has_session_cookie(session)
+                    ):
                         _LOGGER.info(
                             "nokia_fastmile config: Login successful with %s payload, %s nonce",
                             mode,

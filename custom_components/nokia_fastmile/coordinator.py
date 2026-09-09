@@ -222,6 +222,39 @@ def _has_session_cookie(session: aiohttp.ClientSession) -> bool:
     )
 
 
+def _session_cookie_value(session: aiohttp.ClientSession) -> str | None:
+    if session.cookie_jar is None:
+        return None
+    for cookie in session.cookie_jar:
+        if cookie.key.lower() == "sid" and cookie.value and cookie.value.lower() != "deleted":
+            return cookie.value
+    return None
+
+
+def _login_body_session(body: str) -> tuple[str, str | None] | None:
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return None
+    if data.get("result") != 0:
+        return None
+    sid = _str_or_none(data.get("sid"))
+    if sid is None:
+        return None
+    return sid, _str_or_none(data.get("token"))
+
+
+def _redact_login_body(body: str) -> str:
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return body[:120]
+    for key in ("sid", "token"):
+        if key in data:
+            data[key] = "<redacted>"
+    return json.dumps(data, separators=(",", ":"))
+
+
 def _build_login_payload(
     username: str,
     password: str,
@@ -265,6 +298,8 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._config = config_entry.data
         self._session: aiohttp.ClientSession | None = None
         self._authenticated: bool = False
+        self._sid: str | None = None
+        self._token: str | None = None
         self._login_retry_count: int = 0
         self._max_login_retries: int = 2
 
@@ -286,6 +321,8 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._session.close()
             self._session = None
         self._authenticated = False
+        self._sid = None
+        self._token = None
 
     # ── coordinator core ──────────────────────────────────────────────────────
 
@@ -425,6 +462,7 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 last_history = r.history
                 last_status = r.status
                 body = await r.text()
+                login_session = _login_body_session(body)
                 cookie_names = [c.key for c in self._session.cookie_jar] if self._session.cookie_jar else []
                 _LOGGER.debug(
                     "nokia_fastmile: login attempt mode=%s nonce=%s status=%s cookies=%s body=%.120s",
@@ -432,9 +470,16 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "dotted" if dotted_nonce else "raw",
                     r.status,
                     cookie_names,
-                    body,
+                    _redact_login_body(body),
                 )
-                if r.status in LOGIN_SUCCESS_STATUS and _has_session_cookie(self._session):
+                if r.status in LOGIN_SUCCESS_STATUS and (
+                    login_session is not None or _has_session_cookie(self._session)
+                ):
+                    if login_session is not None:
+                        self._sid, self._token = login_session
+                    else:
+                        self._sid = _session_cookie_value(self._session)
+                        self._token = None
                     self._authenticated = True
                     _LOGGER.info(
                         "nokia_fastmile: login successful with %s payload, %s nonce (HTTP %s)",
@@ -526,14 +571,13 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             async with self._session.get(
                 self._base_url() + path,
-                headers={
-                    "Accept": "application/json, text/plain, */*",
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
+                headers=self._request_headers(),
             ) as r:
                 if r.status in (401, 403):
                     _LOGGER.debug("nokia_fastmile: received %s on path %s, resetting auth", r.status, path)
                     self._authenticated = False
+                    self._sid = None
+                    self._token = None
                     
                     # Only retry once per endpoint to avoid infinite loops
                     if self._login_retry_count < self._max_login_retries:
@@ -545,13 +589,12 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         # Retry the request with fresh login
                         async with self._session.get(
                             self._base_url() + path,
-                            headers={
-                                "Accept": "application/json, text/plain, */*",
-                                "Content-Type": "application/x-www-form-urlencoded",
-                            },
+                            headers=self._request_headers(),
                         ) as r2:
                             if r2.status in (401, 403):
                                 _LOGGER.warning("nokia_fastmile: still %s after re-login on path %s", r2.status, path)
+                                self._sid = None
+                                self._token = None
                                 r2.raise_for_status()
                             return _json_or_raise(await r2.text(), path)
                     else:
@@ -572,7 +615,7 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             async with self._session.get(
                 self._base_url() + PATH_CHECK_EXPIRE,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers=self._request_headers(),
             ) as r:
                 body = await r.text()
                 _LOGGER.debug(
@@ -582,6 +625,15 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             _LOGGER.debug("nokia_fastmile: session check skipped: %s", err)
+
+    def _request_headers(self) -> dict[str, str]:
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        if self._sid:
+            headers["Cookie"] = f"sid={self._sid}"
+        return headers
 
     # ── parsers ───────────────────────────────────────────────────────────────
 
