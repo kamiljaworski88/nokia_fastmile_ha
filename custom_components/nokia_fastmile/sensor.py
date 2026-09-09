@@ -10,7 +10,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATTS, UnitOfTime
+from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -19,12 +19,20 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     CONF_HOST,
     DATA_5G_RSRP,
+    DATA_5G_RSRP_STRENGTH_INDEX,
     DATA_5G_RSRQ,
     DATA_5G_SIGNAL_LEVEL,
     DATA_5G_SINR,
+    DATA_CELLULAR_BYTES_RECEIVED,
+    DATA_CELLULAR_BYTES_SENT,
     DATA_CONNECTION_STATE,
     DATA_CONNECTED_DEVICES,
+    DATA_ETHERNET_BYTES_RECEIVED,
+    DATA_ETHERNET_BYTES_SENT,
+    DATA_ETHERNET_PACKETS_RECEIVED,
+    DATA_ETHERNET_PACKETS_SENT,
     DATA_LTE_RSRP,
+    DATA_LTE_RSRP_STRENGTH_INDEX,
     DATA_LTE_RSRQ,
     DATA_LTE_RSSI,
     DATA_LTE_SIGNAL_LEVEL,
@@ -52,7 +60,7 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         key="5g_rsrp",
         data_key=DATA_5G_RSRP,
         name="5G RSRP",
-        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATTS,
+        native_unit_of_measurement="dBm",
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:signal-5g",
@@ -80,12 +88,19 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:signal-5g",
     ),
+    NokiaSensorDescription(
+        key="5g_rsrp_strength_index",
+        data_key=DATA_5G_RSRP_STRENGTH_INDEX,
+        name="5G RSRP Strength Index",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:signal-5g",
+    ),
     # ── LTE signal ────────────────────────────────────────────────────────────
     NokiaSensorDescription(
         key="lte_rsrp",
         data_key=DATA_LTE_RSRP,
         name="LTE RSRP",
-        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATTS,
+        native_unit_of_measurement="dBm",
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:signal",
@@ -102,7 +117,7 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         key="lte_rssi",
         data_key=DATA_LTE_RSSI,
         name="LTE RSSI",
-        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATTS,
+        native_unit_of_measurement="dBm",
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:signal",
@@ -119,6 +134,13 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         key="lte_signal_level",
         data_key=DATA_LTE_SIGNAL_LEVEL,
         name="LTE poziom sygnału",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:signal",
+    ),
+    NokiaSensorDescription(
+        key="lte_rsrp_strength_index",
+        data_key=DATA_LTE_RSRP_STRENGTH_INDEX,
+        name="LTE RSRP Strength Index",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:signal",
     ),
@@ -140,6 +162,57 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         data_key=DATA_WAN_ACTIVE,
         name="Aktywny WAN",
         icon="mdi:antenna",
+    ),
+    # ── Transfer data ───────────────────────────────────────────────────────
+    NokiaSensorDescription(
+        key="cellular_bytes_received",
+        data_key=DATA_CELLULAR_BYTES_RECEIVED,
+        name="Cellular Bytes Received",
+        native_unit_of_measurement="B",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon="mdi:download-network",
+    ),
+    NokiaSensorDescription(
+        key="cellular_bytes_sent",
+        data_key=DATA_CELLULAR_BYTES_SENT,
+        name="Cellular Bytes Sent",
+        native_unit_of_measurement="B",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon="mdi:upload-network",
+    ),
+    NokiaSensorDescription(
+        key="ethernet_bytes_received",
+        data_key=DATA_ETHERNET_BYTES_RECEIVED,
+        name="Ethernet Bytes Received",
+        native_unit_of_measurement="B",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon="mdi:download-network",
+    ),
+    NokiaSensorDescription(
+        key="ethernet_bytes_sent",
+        data_key=DATA_ETHERNET_BYTES_SENT,
+        name="Ethernet Bytes Sent",
+        native_unit_of_measurement="B",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon="mdi:upload-network",
+    ),
+    NokiaSensorDescription(
+        key="ethernet_packets_received",
+        data_key=DATA_ETHERNET_PACKETS_RECEIVED,
+        name="Ethernet Packets Received",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon="mdi:package-down",
+    ),
+    NokiaSensorDescription(
+        key="ethernet_packets_sent",
+        data_key=DATA_ETHERNET_PACKETS_SENT,
+        name="Ethernet Packets Sent",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon="mdi:package-up",
     ),
     # ── Device info ───────────────────────────────────────────────────────────
     NokiaSensorDescription(

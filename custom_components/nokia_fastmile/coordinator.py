@@ -69,14 +69,22 @@ from .const import (
     CONF_USE_HTTPS,
     CONF_USERNAME,
     DATA_5G_RSRP,
+    DATA_5G_RSRP_STRENGTH_INDEX,
     DATA_5G_RSRQ,
     DATA_5G_SIGNAL_LEVEL,
     DATA_5G_SINR,
+    DATA_CELLULAR_BYTES_RECEIVED,
+    DATA_CELLULAR_BYTES_SENT,
     DATA_CONNECTION_STATE,
     DATA_CONNECTED_DEVICES,
+    DATA_ETHERNET_BYTES_RECEIVED,
+    DATA_ETHERNET_BYTES_SENT,
+    DATA_ETHERNET_PACKETS_RECEIVED,
+    DATA_ETHERNET_PACKETS_SENT,
     DATA_ERROR,
     DATA_LAST_UPDATE,
     DATA_LTE_RSRP,
+    DATA_LTE_RSRP_STRENGTH_INDEX,
     DATA_LTE_RSRQ,
     DATA_LTE_RSSI,
     DATA_LTE_SIGNAL_LEVEL,
@@ -95,6 +103,7 @@ from .const import (
     PATH_LOGIN_NONCE,
     PATH_LOGIN_SALT,
     PATH_OVERVIEW,
+    PATH_STATUS,
     SCAN_INTERVAL,
 )
 
@@ -127,14 +136,22 @@ def _empty_data() -> dict[str, Any]:
         DATA_5G_RSRQ: None,
         DATA_5G_SINR: None,
         DATA_5G_SIGNAL_LEVEL: None,
+        DATA_5G_RSRP_STRENGTH_INDEX: None,
         DATA_LTE_RSRP: None,
         DATA_LTE_RSRQ: None,
         DATA_LTE_RSSI: None,
         DATA_LTE_SINR: None,
         DATA_LTE_SIGNAL_LEVEL: None,
+        DATA_LTE_RSRP_STRENGTH_INDEX: None,
         DATA_CONNECTION_STATE: None,
         DATA_WAN_MODE: None,
         DATA_WAN_ACTIVE: None,
+        DATA_CELLULAR_BYTES_RECEIVED: None,
+        DATA_CELLULAR_BYTES_SENT: None,
+        DATA_ETHERNET_BYTES_RECEIVED: None,
+        DATA_ETHERNET_BYTES_SENT: None,
+        DATA_ETHERNET_PACKETS_RECEIVED: None,
+        DATA_ETHERNET_PACKETS_SENT: None,
         DATA_UPTIME: None,
         DATA_SW_VERSION: None,
         DATA_SERIAL_NUMBER: None,
@@ -171,16 +188,21 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._config = config_entry.data
         self._session: aiohttp.ClientSession | None = None
         self._authenticated: bool = False
+        self._login_retry_count: int = 0
+        self._max_login_retries: int = 2
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
     async def async_setup(self) -> None:
         connector = aiohttp.TCPConnector(ssl=False)
+        cookie_jar = aiohttp.CookieJar()
         self._session = aiohttp.ClientSession(
             connector=connector,
-            cookie_jar=aiohttp.CookieJar(),
+            cookie_jar=cookie_jar,
             timeout=aiohttp.ClientTimeout(connect=10, sock_read=15),
+            headers={"User-Agent": "Mozilla/5.0 (HomeAssistant)"},
         )
+        _LOGGER.debug("nokia_fastmile: session created with CookieJar enabled")
 
     async def async_shutdown(self) -> None:
         if self._session is not None:
@@ -191,19 +213,35 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ── coordinator core ──────────────────────────────────────────────────────
 
     async def _async_update_data(self) -> dict[str, Any]:
+        _LOGGER.debug("nokia_fastmile: starting data update")
         last = self.data or _empty_data()
+        self._login_retry_count = 0  # Reset retry counter at start of update cycle
         try:
             await self._ensure_auth()
             result = dict(_empty_data())
 
             overview = await self._get(PATH_OVERVIEW)
+            _LOGGER.debug("nokia_fastmile: overview data: %s", overview)
             self._parse_overview(overview, result)
 
+            # Status endpoint returns 401 on this firmware — skip it gracefully
+            try:
+                status = await self._get(PATH_STATUS)
+                _LOGGER.debug("nokia_fastmile: status data: %s", status)
+                self._parse_status(status, result)
+            except aiohttp.ClientResponseError as err:
+                if err.status == 401:
+                    _LOGGER.debug("nokia_fastmile: status endpoint not available (HTTP 401), skipping transfer data")
+                else:
+                    raise
+
             device_info = await self._get(PATH_DEVICE_INFO)
+            _LOGGER.debug("nokia_fastmile: device_info data: %s", device_info)
             self._parse_device_info(device_info, result)
 
             result[DATA_LAST_UPDATE] = datetime.now().isoformat(timespec="seconds")
             result[DATA_ERROR] = None
+            _LOGGER.debug("nokia_fastmile: data update successful")
             return result
 
         except aiohttp.ClientConnectorError as err:
@@ -256,6 +294,8 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Step 2 — salt (empty on this firmware; fetch to maintain correct session state)
         async with self._session.get(base + PATH_LOGIN_SALT) as r:
             r.raise_for_status()
+            _LOGGER.debug("nokia_fastmile: salt fetch completed, headers=%s", 
+                         dict(r.headers) if r.status == 200 else None)
 
         # Step 3 — compute PBKDF2-HMAC-SHA256 hashes and POST
         #
@@ -278,10 +318,20 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
         async with self._session.post(base + PATH_LOGIN, json=payload) as r:
-            if r.status == LOGIN_SUCCESS_STATUS:
+            _LOGGER.debug("nokia_fastmile: login response status=%s headers=%s", 
+                         r.status, dict(r.headers))
+            
+            if r.status in LOGIN_SUCCESS_STATUS:
+                # Debug: log cookies
+                if self._session.cookie_jar:
+                    cookies_list = list(self._session.cookie_jar)
+                    _LOGGER.debug("nokia_fastmile: cookies after login: %s", 
+                                  [(c.key, c.value[:20] if len(c.value) > 20 else c.value) for c in cookies_list])
+                
                 self._authenticated = True
                 _LOGGER.info("nokia_fastmile: login successful (HTTP %s)", r.status)
                 return
+            
             body = await r.text()
             _LOGGER.error(
                 "nokia_fastmile: login failed — HTTP %s body=%.300s", r.status, body
@@ -294,15 +344,37 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _get(self, path: str) -> dict[str, Any]:
         assert self._session is not None
-        async with self._session.get(self._base_url() + path) as r:
-            if r.status in (401, 403):
-                self._authenticated = False
-                await self._login()
-                async with self._session.get(self._base_url() + path) as r2:
-                    r2.raise_for_status()
-                    return await r2.json(content_type=None) or {}
-            r.raise_for_status()
-            return await r.json(content_type=None) or {}
+        try:
+            async with self._session.get(self._base_url() + path) as r:
+                if r.status in (401, 403):
+                    _LOGGER.debug("nokia_fastmile: received %s on path %s, resetting auth", r.status, path)
+                    self._authenticated = False
+                    
+                    # Only retry once per endpoint to avoid infinite loops
+                    if self._login_retry_count < self._max_login_retries:
+                        self._login_retry_count += 1
+                        _LOGGER.info("nokia_fastmile: attempting re-login for %s (%d/%d)", 
+                                   path, self._login_retry_count, self._max_login_retries)
+                        await self._login()
+                        
+                        # Retry the request with fresh login
+                        async with self._session.get(self._base_url() + path) as r2:
+                            if r2.status in (401, 403):
+                                _LOGGER.warning("nokia_fastmile: still %s after re-login on path %s", r2.status, path)
+                                r2.raise_for_status()
+                            return await r2.json(content_type=None) or {}
+                    else:
+                        _LOGGER.warning("nokia_fastmile: max retries exceeded for path %s", path)
+                        r.raise_for_status()
+                
+                r.raise_for_status()
+                return await r.json(content_type=None) or {}
+        
+        except aiohttp.ClientResponseError:
+            raise
+        except Exception as err:
+            _LOGGER.error("nokia_fastmile: unexpected error in _get(%s): %s", path, err)
+            raise
 
     # ── parsers ───────────────────────────────────────────────────────────────
 
@@ -328,6 +400,7 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             out[DATA_5G_RSRQ] = _int_or_none(stat.get("RSRQCurrent"))
             out[DATA_5G_SINR] = _int_or_none(stat.get("SNRCurrent"))
             out[DATA_5G_SIGNAL_LEVEL] = _int_or_none(stat.get("SignalStrengthLevel"))
+            out[DATA_5G_RSRP_STRENGTH_INDEX] = _int_or_none(stat.get("RSRPStrengthIndexCurrent"))
 
         # LTE: cell_LTE_stats_cfg[0].stat
         stats_lte = raw.get("cell_LTE_stats_cfg") or []
@@ -338,6 +411,25 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             out[DATA_LTE_RSSI] = _int_or_none(stat.get("RSSICurrent"))
             out[DATA_LTE_SINR] = _int_or_none(stat.get("SNRCurrent"))
             out[DATA_LTE_SIGNAL_LEVEL] = _int_or_none(stat.get("SignalStrengthLevel"))
+            out[DATA_LTE_RSRP_STRENGTH_INDEX] = _int_or_none(stat.get("RSRPStrengthIndexCurrent"))
+
+    def _parse_status(self, raw: dict[str, Any], out: dict[str, Any]) -> None:
+        # cellular_stats[0]
+        cellular_list = raw.get("cellular_stats") or []
+        if cellular_list:
+            cellular = cellular_list[0]
+            out[DATA_CELLULAR_BYTES_RECEIVED] = _int_or_none(cellular.get("BytesReceived"))
+            out[DATA_CELLULAR_BYTES_SENT] = _int_or_none(cellular.get("BytesSent"))
+
+        # ethernet_stats[0].stat
+        ethernet_list = raw.get("ethernet_stats") or []
+        if ethernet_list:
+            ethernet = ethernet_list[0]
+            stat = ethernet.get("stat") or {}
+            out[DATA_ETHERNET_BYTES_RECEIVED] = _int_or_none(stat.get("BytesReceived"))
+            out[DATA_ETHERNET_BYTES_SENT] = _int_or_none(stat.get("BytesSent"))
+            out[DATA_ETHERNET_PACKETS_RECEIVED] = _int_or_none(stat.get("PacketsReceived"))
+            out[DATA_ETHERNET_PACKETS_SENT] = _int_or_none(stat.get("PacketsSent"))
 
     def _parse_device_info(self, raw: dict[str, Any], out: dict[str, Any]) -> None:
         # device_app_status[0]

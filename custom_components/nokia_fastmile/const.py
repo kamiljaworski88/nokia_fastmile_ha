@@ -23,10 +23,11 @@ PATH_LOGIN_SALT = "/login_web_app.cgi?salt"
 PATH_LOGIN = "/login_web_app.cgi"
 PATH_OVERVIEW = "/overview_get_web_app.cgi"
 PATH_DEVICE_INFO = "/dashboard_device_info_status_web_app.cgi"
+PATH_STATUS = "/status_get_web_app.cgi"
 PATH_CHECK_EXPIRE = "/check_expire_web_app.cgi"
 
-# Nokia-specific HTTP status code for successful login
-LOGIN_SUCCESS_STATUS = 299
+# Nokia-specific HTTP status codes for successful login
+LOGIN_SUCCESS_STATUS = (200, 299)
 
 # ── Coordinator data keys ──────────────────────────────────────────────────────
 # 5G signal (from overview_get_web_app.cgi → cell_5G_stats_cfg[0].stat)
@@ -34,6 +35,7 @@ DATA_5G_RSRP = "5g_rsrp"
 DATA_5G_RSRQ = "5g_rsrq"
 DATA_5G_SINR = "5g_sinr"
 DATA_5G_SIGNAL_LEVEL = "5g_signal_level"
+DATA_5G_RSRP_STRENGTH_INDEX = "5g_rsrp_strength_index"
 
 # LTE signal (from overview_get_web_app.cgi → cell_LTE_stats_cfg[0].stat)
 DATA_LTE_RSRP = "lte_rsrp"
@@ -41,11 +43,20 @@ DATA_LTE_RSRQ = "lte_rsrq"
 DATA_LTE_RSSI = "lte_rssi"
 DATA_LTE_SINR = "lte_sinr"
 DATA_LTE_SIGNAL_LEVEL = "lte_signal_level"
+DATA_LTE_RSRP_STRENGTH_INDEX = "lte_rsrp_strength_index"
 
 # Connection / WAN (from overview_get_web_app.cgi)
 DATA_CONNECTION_STATE = "connection_state"
 DATA_WAN_MODE = "wan_mode"
 DATA_WAN_ACTIVE = "wan_active"
+
+# Transfer data (from status_get_web_app.cgi)
+DATA_CELLULAR_BYTES_RECEIVED = "cellular_bytes_received"
+DATA_CELLULAR_BYTES_SENT = "cellular_bytes_sent"
+DATA_ETHERNET_BYTES_RECEIVED = "ethernet_bytes_received"
+DATA_ETHERNET_BYTES_SENT = "ethernet_bytes_sent"
+DATA_ETHERNET_PACKETS_RECEIVED = "ethernet_packets_received"
+DATA_ETHERNET_PACKETS_SENT = "ethernet_packets_sent"
 
 # Device info (from dashboard_device_info_status_web_app.cgi)
 DATA_UPTIME = "uptime"
