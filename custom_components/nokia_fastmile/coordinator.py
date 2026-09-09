@@ -196,14 +196,14 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_setup(self) -> None:
         connector = aiohttp.TCPConnector(ssl=False)
-        cookie_jar = aiohttp.CookieJar()
+        cookie_jar = aiohttp.CookieJar(unsafe=True)
         self._session = aiohttp.ClientSession(
             connector=connector,
             cookie_jar=cookie_jar,
             timeout=aiohttp.ClientTimeout(connect=10, sock_read=15),
             headers={"User-Agent": "Mozilla/5.0 (HomeAssistant)"},
         )
-        _LOGGER.debug("nokia_fastmile: session created with CookieJar enabled")
+        _LOGGER.debug("nokia_fastmile: session created with CookieJar enabled for IP hosts")
 
     async def async_shutdown(self) -> None:
         if self._session is not None:

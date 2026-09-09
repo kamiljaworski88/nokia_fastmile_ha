@@ -72,7 +72,7 @@ async def _test_login(hass: HomeAssistant, data: dict[str, Any]) -> str | None:
     try:
         async with aiohttp.ClientSession(
             connector=connector,
-            cookie_jar=aiohttp.CookieJar(),
+            cookie_jar=aiohttp.CookieJar(unsafe=True),
             timeout=aiohttp.ClientTimeout(connect=8, sock_read=12),
         ) as session:
             # Step 1 — nonce + crypto params
