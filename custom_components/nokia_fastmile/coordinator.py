@@ -222,6 +222,32 @@ def _has_session_cookie(session: aiohttp.ClientSession) -> bool:
     )
 
 
+def _build_login_payload(
+    username: str,
+    password: str,
+    nonce_data: dict[str, Any],
+) -> dict[str, str]:
+    nonce_b64: str = nonce_data["nonce"]
+    random_key: str = str(nonce_data.get("randomKey", ""))
+    iterations: int = int(nonce_data.get("iterations", 1))
+    nonce_bytes = _std_b64decode(nonce_b64)
+
+    return {
+        "userhash": _nokia_b64encode(
+            hashlib.pbkdf2_hmac("sha256", username.encode(), nonce_bytes, iterations)
+        ),
+        "RandomKeyhash": _nokia_b64encode(
+            hashlib.pbkdf2_hmac("sha256", random_key.encode(), nonce_bytes, iterations)
+        ),
+        "response": _nokia_b64encode(
+            hashlib.pbkdf2_hmac("sha256", password.encode(), nonce_bytes, iterations)
+        ),
+        "nonce": nonce_b64.replace("=", "."),
+        "enckey": _nokia_b64encode(os.urandom(16)),
+        "enciv": _nokia_b64encode(os.urandom(16)),
+    }
+
+
 # ── Coordinator ───────────────────────────────────────────────────────────────
 
 class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -351,6 +377,65 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         base = self._base_url()
         username = self._config[CONF_USERNAME]
         password = self._config[CONF_PASSWORD]
+
+        last_request_info = None
+        last_history = ()
+        last_status = 0
+
+        for mode in ("json", "form"):
+            self._session.cookie_jar.clear()
+            async with self._session.get(base + PATH_LOGIN_NONCE) as r:
+                r.raise_for_status()
+                nonce_data = await r.json(content_type=None)
+            _LOGGER.debug("nokia_fastmile: nonce_data=%s", nonce_data)
+
+            async with self._session.get(base + PATH_LOGIN_SALT) as r:
+                r.raise_for_status()
+                _LOGGER.debug("nokia_fastmile: salt fetch completed status=%s", r.status)
+
+            payload = _build_login_payload(username, password, nonce_data)
+            if mode == "json":
+                post_kwargs = {
+                    "json": payload,
+                    "headers": {"Accept": "application/json, text/plain, */*"},
+                }
+            else:
+                post_kwargs = {
+                    "data": payload,
+                    "headers": {
+                        "Accept": "application/json, text/plain, */*",
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                }
+
+            async with self._session.post(base + PATH_LOGIN, **post_kwargs) as r:
+                last_request_info = r.request_info
+                last_history = r.history
+                last_status = r.status
+                body = await r.text()
+                cookie_names = [c.key for c in self._session.cookie_jar] if self._session.cookie_jar else []
+                _LOGGER.debug(
+                    "nokia_fastmile: login attempt mode=%s status=%s cookies=%s body=%.120s",
+                    mode,
+                    r.status,
+                    cookie_names,
+                    body,
+                )
+                if r.status in LOGIN_SUCCESS_STATUS and _has_session_cookie(self._session):
+                    self._authenticated = True
+                    _LOGGER.info(
+                        "nokia_fastmile: login successful with %s payload (HTTP %s)",
+                        mode,
+                        r.status,
+                    )
+                    return
+
+        raise aiohttp.ClientResponseError(
+            last_request_info,
+            last_history,
+            status=last_status,
+            message="Login failed",
+        )
 
         # Step 1 — nonce + crypto params
         async with self._session.get(base + PATH_LOGIN_NONCE) as r:
