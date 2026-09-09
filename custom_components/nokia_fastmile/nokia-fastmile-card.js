@@ -61,6 +61,18 @@ function fmtBytes(bytes) {
   return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
 }
 
+function fmtTraffic(state) {
+  const value = val(state);
+  if (value === null || value === undefined) return "—";
+  const unit = state?.attributes?.unit_of_measurement;
+  if (unit && unit.toLowerCase() !== "b") {
+    const n = Number(value);
+    const display = Number.isFinite(n) ? n.toFixed(2) : value;
+    return `${display} ${unit}`;
+  }
+  return fmtBytes(value);
+}
+
 // ── Styles (same design tokens as home-pulse-card) ────────────────────────────
 const STYLES = `
   :host { display: block; }
@@ -347,7 +359,7 @@ class NokiaFastMileCard extends HTMLElement {
     return `
       <div class="traffic">
         <div class="traffic-label">${esc(label)}</div>
-        <div class="traffic-value">${esc(fmtBytes(val(state)))}</div>
+        <div class="traffic-value">${esc(fmtTraffic(state))}</div>
       </div>`;
   }
 

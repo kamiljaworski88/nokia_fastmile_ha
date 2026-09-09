@@ -62,6 +62,11 @@ from .coordinator import NokiaFastMileCoordinator
 @dataclass(frozen=True, kw_only=True)
 class NokiaSensorDescription(SensorEntityDescription):
     data_key: str = ""
+    value_scale: float = 1.0
+    value_precision: int | None = None
+
+
+BYTE_TO_GB = 1024**3
 
 
 SENSORS: tuple[NokiaSensorDescription, ...] = (
@@ -241,37 +246,45 @@ SENSORS: tuple[NokiaSensorDescription, ...] = (
         key="cellular_bytes_received",
         data_key=DATA_CELLULAR_BYTES_RECEIVED,
         name="Cellular Bytes Received",
-        native_unit_of_measurement="B",
+        native_unit_of_measurement="GB",
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:download-network",
+        value_scale=BYTE_TO_GB,
+        value_precision=2,
     ),
     NokiaSensorDescription(
         key="cellular_bytes_sent",
         data_key=DATA_CELLULAR_BYTES_SENT,
         name="Cellular Bytes Sent",
-        native_unit_of_measurement="B",
+        native_unit_of_measurement="GB",
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:upload-network",
+        value_scale=BYTE_TO_GB,
+        value_precision=2,
     ),
     NokiaSensorDescription(
         key="ethernet_bytes_received",
         data_key=DATA_ETHERNET_BYTES_RECEIVED,
         name="Ethernet Bytes Received",
-        native_unit_of_measurement="B",
+        native_unit_of_measurement="GB",
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:download-network",
+        value_scale=BYTE_TO_GB,
+        value_precision=2,
     ),
     NokiaSensorDescription(
         key="ethernet_bytes_sent",
         data_key=DATA_ETHERNET_BYTES_SENT,
         name="Ethernet Bytes Sent",
-        native_unit_of_measurement="B",
+        native_unit_of_measurement="GB",
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.TOTAL_INCREASING,
         icon="mdi:upload-network",
+        value_scale=BYTE_TO_GB,
+        value_precision=2,
     ),
     NokiaSensorDescription(
         key="ethernet_packets_received",
@@ -368,4 +381,14 @@ class NokiaFastMileSensor(CoordinatorEntity[NokiaFastMileCoordinator], SensorEnt
     def native_value(self) -> Any:
         if self.coordinator.data is None:
             return None
-        return self.coordinator.data.get(self.entity_description.data_key)
+        value = self.coordinator.data.get(self.entity_description.data_key)
+        if (
+            value is None
+            or self.entity_description.value_scale == 1
+            or not isinstance(value, (int, float))
+        ):
+            return value
+        scaled = value / self.entity_description.value_scale
+        if self.entity_description.value_precision is None:
+            return scaled
+        return round(scaled, self.entity_description.value_precision)
