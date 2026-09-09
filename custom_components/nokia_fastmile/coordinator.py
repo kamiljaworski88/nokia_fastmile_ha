@@ -24,6 +24,7 @@ Authentication (3 steps):
 
 Data endpoints (plain GET, no body):
   /overview_get_web_app.cgi
+  /fastmile_radio_status_web_app.cgi
   /dashboard_device_info_status_web_app.cgi
 
 overview response (confirmed):
@@ -103,7 +104,7 @@ from .const import (
     PATH_LOGIN_NONCE,
     PATH_LOGIN_SALT,
     PATH_OVERVIEW,
-    PATH_STATUS,
+    PATH_RADIO_STATUS,
     SCAN_INTERVAL,
 )
 
@@ -224,14 +225,14 @@ class NokiaFastMileCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("nokia_fastmile: overview data: %s", overview)
             self._parse_overview(overview, result)
 
-            # Status endpoint returns 401 on this firmware — skip it gracefully
+            # Some firmware variants do not expose radio status after login.
             try:
-                status = await self._get(PATH_STATUS)
+                status = await self._get(PATH_RADIO_STATUS)
                 _LOGGER.debug("nokia_fastmile: status data: %s", status)
                 self._parse_status(status, result)
             except aiohttp.ClientResponseError as err:
                 if err.status == 401:
-                    _LOGGER.debug("nokia_fastmile: status endpoint not available (HTTP 401), skipping transfer data")
+                    _LOGGER.debug("nokia_fastmile: radio status endpoint not available (HTTP 401), skipping transfer data")
                 else:
                     raise
 

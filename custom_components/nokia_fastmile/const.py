@@ -23,7 +23,7 @@ PATH_LOGIN_SALT = "/login_web_app.cgi?salt"
 PATH_LOGIN = "/login_web_app.cgi"
 PATH_OVERVIEW = "/overview_get_web_app.cgi"
 PATH_DEVICE_INFO = "/dashboard_device_info_status_web_app.cgi"
-PATH_STATUS = "/status_get_web_app.cgi"
+PATH_RADIO_STATUS = "/fastmile_radio_status_web_app.cgi"
 PATH_CHECK_EXPIRE = "/check_expire_web_app.cgi"
 
 # Nokia-specific HTTP status codes for successful login
@@ -50,7 +50,7 @@ DATA_CONNECTION_STATE = "connection_state"
 DATA_WAN_MODE = "wan_mode"
 DATA_WAN_ACTIVE = "wan_active"
 
-# Transfer data (from status_get_web_app.cgi)
+# Transfer data (from fastmile_radio_status_web_app.cgi)
 DATA_CELLULAR_BYTES_RECEIVED = "cellular_bytes_received"
 DATA_CELLULAR_BYTES_SENT = "cellular_bytes_sent"
 DATA_ETHERNET_BYTES_RECEIVED = "ethernet_bytes_received"

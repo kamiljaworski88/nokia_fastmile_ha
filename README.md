@@ -83,6 +83,17 @@ Jeżeli konfiguracja nie działa:
 - `custom_components/nokia_fastmile/manifest.json` — metadane integracji
 - `www/nokia-fastmile-card.js` — karta Lovelace do wizualizacji danych
 
+## Statystyki transferu
+
+Sensory `Cellular Bytes Received`, `Cellular Bytes Sent`, `Ethernet Bytes Received`,
+`Ethernet Bytes Sent`, `Ethernet Packets Received` i `Ethernet Packets Sent`
+są pobierane z endpointu:
+
+- `/fastmile_radio_status_web_app.cgi`
+
+Jeżeli po aktualizacji nadal mają stan `unknown`, sprawdź w logach Home Assistant,
+czy router nie zwraca dla tego endpointu HTTP `401` albo pustej odpowiedzi.
+
 ## Wersja
 
 Aktualnie obsługiwana wersja firmware routera: `1.2302.00.0355`.
