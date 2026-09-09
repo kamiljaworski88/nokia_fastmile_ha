@@ -93,6 +93,17 @@ const STYLES = `
   .header-meta {
     font-size: 0.72rem; color: var(--secondary-text-color); margin-top: 2px;
   }
+  .header-actions {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .restart-button {
+    width: 32px; height: 32px; padding: 0; border: 1px solid var(--divider-color);
+    border-radius: 6px; color: var(--primary-color); background: transparent;
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .restart-button:hover { background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+  .restart-button:disabled { opacity: 0.45; cursor: wait; }
+  .restart-button ha-icon { --mdc-icon-size: 18px; }
   .badge {
     font-size: 0.72rem; font-weight: 700; padding: 3px 10px;
     border-radius: 20px; white-space: nowrap; margin-top: 2px;
@@ -250,10 +261,22 @@ class NokiaFastMileCard extends HTMLElement {
     return null;
   }
 
+  _findButton(keyword) {
+    const states = this._hass?.states;
+    if (!states) return null;
+    const kw = keyword.toLowerCase();
+    for (const [id, s] of Object.entries(states)) {
+      if (!id.startsWith("button.")) continue;
+      const name = (s.attributes.friendly_name ?? "").toLowerCase();
+      if (name.includes("nokia fastmile") && name.includes(kw)) return s;
+    }
+    return null;
+  }
+
   _relevantIds() {
     if (!this._hass) return [];
     return Object.keys(this._hass.states).filter(id =>
-      id.startsWith("sensor.") &&
+      (id.startsWith("sensor.") || id.startsWith("button.")) &&
       (this._hass.states[id].attributes.friendly_name ?? "").toLowerCase().includes("nokia fastmile")
     );
   }
@@ -391,6 +414,24 @@ class NokiaFastMileCard extends HTMLElement {
     const card = document.createElement("ha-card");
     card.innerHTML = this._html();
     root.appendChild(card);
+
+    const restartButton = root.querySelector(".restart-button");
+    if (restartButton) {
+      restartButton.addEventListener("click", () => this._restart(restartButton));
+    }
+  }
+
+  async _restart(button) {
+    const entityId = button.dataset.entityId;
+    if (!entityId || !this._hass) return;
+    if (!window.confirm("Czy na pewno zrestartowac router Nokia FastMile?")) return;
+
+    button.disabled = true;
+    try {
+      await this._hass.callService("button", "press", { entity_id: entityId });
+    } finally {
+      button.disabled = false;
+    }
   }
 
   _html() {
@@ -426,6 +467,7 @@ class NokiaFastMileCard extends HTMLElement {
     const eUptime  = this._find("uptime");
     const eDevices = this._find("podłączone urządzenia");
     const eSms     = this._find("nieprzeczytane sms");
+    const eRestart = this._findButton("restart router");
 
     // Check if integration is present at all
     if (!e5gRsrp && !eLteRsrp) {
@@ -493,7 +535,14 @@ class NokiaFastMileCard extends HTMLElement {
             ${updatedStr ? ` · aktualizacja ${esc(updatedStr)}` : ""}
           </div>
         </div>
-        <span class="badge ${badgeClass}">${badgeText}</span>
+        <div class="header-actions">
+          <span class="badge ${badgeClass}">${badgeText}</span>
+          ${eRestart ? `
+            <button class="restart-button" type="button" title="Restart router"
+              aria-label="Restart router" data-entity-id="${esc(eRestart.entity_id)}">
+              <ha-icon icon="mdi:restart"></ha-icon>
+            </button>` : ""}
+        </div>
       </div>
 
       <!-- Signal panels -->
