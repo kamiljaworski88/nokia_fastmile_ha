@@ -10,7 +10,7 @@ Ta dokumentacja opisuje integrację `nokia_fastmile` dla Home Assistant, która 
    ```yaml
    frontend:
      extra_module_url:
-      - /nokia_fastmile/nokia-fastmile-card.js?v=1.0.26
+      - /nokia_fastmile/nokia-fastmile-card.js
    ```
 4. Zrestartuj Home Assistant.
 5. Przejdź do `Ustawienia > Urządzenia i usługi > Dodaj integrację` i wyszukaj `Nokia FastMile 5G`.
