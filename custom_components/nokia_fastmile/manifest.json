@@ -1,7 +1,7 @@
 {
   "domain": "nokia_fastmile",
   "name": "Nokia FastMile 5G",
-  "version": "1.0.26",
+  "version": "1.0.27",
   "documentation": "https://github.com/kamiljaworski88/nokia_fastmile_ha",
   "issue_tracker": "https://github.com/kamiljaworski88/nokia_fastmile_ha/issues",
   "requirements": ["aiohttp>=3.8"],
