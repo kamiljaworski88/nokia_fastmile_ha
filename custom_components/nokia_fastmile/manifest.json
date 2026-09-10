@@ -1,11 +1,12 @@
 {
   "domain": "nokia_fastmile",
   "name": "Nokia FastMile 5G",
-  "version": "1.0.25",
-  "documentation": "",
+  "version": "1.0.26",
+  "documentation": "https://github.com/kamiljaworski88/nokia_fastmile_ha",
+  "issue_tracker": "https://github.com/kamiljaworski88/nokia_fastmile_ha/issues",
   "requirements": ["aiohttp>=3.8"],
-  "dependencies": [],
-  "codeowners": [],
+  "dependencies": ["http"],
+  "codeowners": ["@kamiljaworski88"],
   "iot_class": "local_polling",
   "config_flow": true,
   "homeassistant": "2024.1.0"
