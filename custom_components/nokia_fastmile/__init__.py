@@ -31,11 +31,11 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
         hass.http, "async_register_static_paths"
     ):
         await hass.http.async_register_static_paths(
-            [StaticPathConfig(FRONTEND_URL, str(FRONTEND_PATH), True)]
+            [StaticPathConfig(FRONTEND_URL, str(FRONTEND_PATH), False)]
         )
     else:
         # Compatibility with Home Assistant 2024.1-2024.6.
-        hass.http.register_static_path(FRONTEND_URL, str(FRONTEND_PATH), True)
+        hass.http.register_static_path(FRONTEND_URL, str(FRONTEND_PATH), False)
 
     domain_data["frontend_registered"] = True
 
