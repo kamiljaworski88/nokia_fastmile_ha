@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
-from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+
+try:
+    from homeassistant.components.http import StaticPathConfig
+except ImportError:  # Home Assistant < 2024.7
+    StaticPathConfig = None  # type: ignore[misc, assignment]
 
 from .const import DOMAIN
 from .coordinator import NokiaFastMileCoordinator
@@ -22,13 +27,27 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
     if domain_data.get("frontend_registered"):
         return
 
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig(FRONTEND_URL, str(FRONTEND_PATH), True)]
-    )
+    if StaticPathConfig is not None and hasattr(
+        hass.http, "async_register_static_paths"
+    ):
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(FRONTEND_URL, str(FRONTEND_PATH), True)]
+        )
+    else:
+        # Compatibility with Home Assistant 2024.1-2024.6.
+        hass.http.register_static_path(FRONTEND_URL, str(FRONTEND_PATH), True)
+
     domain_data["frontend_registered"] = True
 
 
+async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
+    """Register frontend assets independently of router availability."""
+    await _async_register_frontend(hass)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Keep this call as a safeguard for config-entry-only loading paths.
     await _async_register_frontend(hass)
 
     coordinator = NokiaFastMileCoordinator(hass, entry)
